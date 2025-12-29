@@ -41,16 +41,26 @@ tag="v${base_version}-pepper.${pepper_n}"
 echo "Bumping package.json version:"
 echo "  $current_version -> $new_version"
 
-node - <<'NODE' "$new_version"
-const fs = require('fs');
-const path = require('path');
+python3 - <<'PY' "$new_version"
+import pathlib
+import re
+import sys
 
-const newVersion = process.argv[2];
-const packagePath = path.join(process.cwd(), 'package.json');
-const pkg = JSON.parse(fs.readFileSync(packagePath, 'utf8'));
-pkg.version = newVersion;
-fs.writeFileSync(packagePath, JSON.stringify(pkg, null, 2) + '\n');
-NODE
+new_version = sys.argv[1]
+package_path = pathlib.Path("package.json")
+text = package_path.read_text(encoding="utf-8")
+
+new_text, n = re.subn(
+    r'(?m)^(\t"version"\s*:\s*)"[^"]*"(,?)$',
+    rf'\1"{new_version}"\2',
+    text,
+    count=1,
+)
+if n != 1:
+    raise SystemExit(f"error: expected to replace 1 version line, replaced {n}")
+
+package_path.write_text(new_text, encoding="utf-8")
+PY
 
 git add package.json
 git commit -m "chore: pepper release ${tag}"
@@ -60,4 +70,3 @@ echo "Created tag: ${tag}"
 echo "Next:"
 echo "  git push origin HEAD"
 echo "  git push origin ${tag}"
-
