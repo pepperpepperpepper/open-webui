@@ -24,7 +24,18 @@ Keep this list short and concrete. Each entry should answer:
 - and where it lives (frontend/backend).
 
 Current patches:
-- *(none yet — this fork currently tracks upstream `v0.6.43`)*
+- **Cartesia STT/TTS via OpenAI-compatible settings** (backend):
+  - `backend/open_webui/routers/audio.py`
+  - Adds Cartesia `/voices` listing (with `Cartesia-Version` header), routes TTS to `/tts/bytes`, and normalizes STT model/language for Cartesia.
+- **Cerebras provider timing logs** (backend):
+  - `backend/open_webui/routers/openai.py`
+  - Adds high-signal logs for Cerebras requests (start → headers → TTFT → done/error).
+- **Voice mode resilience** (frontend):
+  - `src/lib/components/chat/MessageInput/CallOverlay.svelte`
+  - Uses a timer loop instead of `requestAnimationFrame` so the audio loop isn’t fully paused when the tab is backgrounded.
+- **ChatControls ResizeObserver guard** (frontend):
+  - `src/lib/components/chat/ChatControls.svelte`
+  - Prevents a race where `pane` becomes `null` while the observer callback still runs.
 
 ## Deployment ownership boundary
 
@@ -43,4 +54,3 @@ Current patches:
 ## Rollback
 
 Re-pin the server to the previous wheel URL and restart.
-

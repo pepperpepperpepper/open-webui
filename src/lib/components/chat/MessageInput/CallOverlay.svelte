@@ -350,11 +350,11 @@
 					}
 				}
 
-				window.requestAnimationFrame(processFrame);
-			};
+					setTimeout(processFrame, 50);
+				};
 
-			window.requestAnimationFrame(processFrame);
-		};
+				setTimeout(processFrame, 50);
+			};
 
 		detectSound();
 	};

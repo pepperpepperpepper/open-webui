@@ -367,11 +367,59 @@ async def speech(request: Request, user=Depends(get_verified_user)):
                     "Content-Type": "application/json",
                     "Authorization": f"Bearer {request.app.state.config.TTS_OPENAI_API_KEY}",
                 }
+                if "cartesia.ai" in request.app.state.config.TTS_OPENAI_API_BASE_URL:
+                    cartesia_version = None
+                    if isinstance(request.app.state.config.TTS_OPENAI_PARAMS, dict):
+                        cartesia_version = request.app.state.config.TTS_OPENAI_PARAMS.get(
+                            "cartesia_version"
+                        )
+                    if cartesia_version:
+                        headers["Cartesia-Version"] = str(cartesia_version)
                 if ENABLE_FORWARD_USER_INFO_HEADERS:
                     headers = include_user_info_headers(headers, user)
 
+                tts_base_url = request.app.state.config.TTS_OPENAI_API_BASE_URL.rstrip(
+                    "/"
+                )
+                tts_url = f"{tts_base_url}/audio/speech"
+
+                # Cartesia doesn't implement OpenAI's /audio/speech; use /tts/bytes.
+                if "cartesia.ai" in tts_base_url:
+                    tts_url = f"{tts_base_url}/tts/bytes"
+
+                    voice_id = request.app.state.config.TTS_VOICE
+                    if isinstance(payload.get("voice"), dict) and payload["voice"].get(
+                        "id"
+                    ):
+                        voice_id = str(payload["voice"]["id"])
+                    elif isinstance(payload.get("voice"), str) and payload.get("voice"):
+                        voice_id = str(payload["voice"])
+
+                    transcript = (
+                        payload.get("transcript")
+                        or payload.get("input")
+                        or payload.get("text")
+                        or ""
+                    )
+
+                    output_format = None
+                    if isinstance(payload.get("output_format"), dict):
+                        output_format = payload.get("output_format")
+                    elif isinstance(request.app.state.config.TTS_OPENAI_PARAMS, dict):
+                        output_format = request.app.state.config.TTS_OPENAI_PARAMS.get(
+                            "output_format"
+                        )
+
+                    payload = {
+                        "model_id": request.app.state.config.TTS_MODEL,
+                        "transcript": transcript,
+                        "voice": {"mode": "id", "id": voice_id},
+                    }
+                    if output_format:
+                        payload["output_format"] = output_format
+
                 r = await session.post(
-                    url=f"{request.app.state.config.TTS_OPENAI_API_BASE_URL}/audio/speech",
+                    url=tts_url,
                     json=payload,
                     headers=headers,
                     ssl=AIOHTTP_CLIENT_SESSION_SSL,
@@ -607,16 +655,35 @@ def transcription_handler(request, file_path, metadata, user=None):
         r = None
         try:
             for language in languages:
-                payload = {
-                    "model": request.app.state.config.STT_MODEL,
-                }
+                model = request.app.state.config.STT_MODEL
+                if (
+                    "cartesia.ai" in request.app.state.config.STT_OPENAI_API_BASE_URL
+                    and model == "ink/ink-whisper"
+                ):
+                    model = "ink-whisper"
+
+                payload = {"model": model}
 
                 if language:
+                    if (
+                        "cartesia.ai" in request.app.state.config.STT_OPENAI_API_BASE_URL
+                        and isinstance(language, str)
+                        and "-" in language
+                    ):
+                        language = language.split("-", 1)[0]
                     payload["language"] = language
 
                 headers = {
                     "Authorization": f"Bearer {request.app.state.config.STT_OPENAI_API_KEY}"
                 }
+                if "cartesia.ai" in request.app.state.config.STT_OPENAI_API_BASE_URL:
+                    cartesia_version = None
+                    if isinstance(request.app.state.config.TTS_OPENAI_PARAMS, dict):
+                        cartesia_version = request.app.state.config.TTS_OPENAI_PARAMS.get(
+                            "cartesia_version"
+                        )
+                    if cartesia_version:
+                        headers["Cartesia-Version"] = str(cartesia_version)
                 if user and ENABLE_FORWARD_USER_INFO_HEADERS:
                     headers = include_user_info_headers(headers, user)
 
@@ -1250,18 +1317,80 @@ async def get_models(request: Request, user=Depends(get_verified_user)):
     return {"models": get_available_models(request)}
 
 
+def get_cartesia_version_from_tts_openai_params(request) -> Optional[str]:
+    params = request.app.state.config.TTS_OPENAI_PARAMS
+    if isinstance(params, dict):
+        version = params.get("cartesia_version")
+        if isinstance(version, str) and version.strip():
+            return version.strip()
+    return None
+
+
+@lru_cache
+def get_cartesia_voices(
+    api_key: str, base_url: str, cartesia_version: Optional[str]
+) -> dict:
+    voices: dict[str, str] = {}
+
+    headers = {"Authorization": f"Bearer {api_key}"}
+    if cartesia_version:
+        headers["Cartesia-Version"] = cartesia_version
+
+    starting_after = None
+    while True:
+        params = {"limit": 200}
+        if starting_after:
+            params["starting_after"] = starting_after
+
+        response = requests.get(
+            f"{base_url.rstrip('/')}/voices",
+            headers=headers,
+            params=params,
+            timeout=10,
+        )
+        response.raise_for_status()
+        data = response.json() or {}
+
+        for voice in data.get("data", []) or []:
+            if isinstance(voice, dict) and voice.get("id") and voice.get("name"):
+                voices[str(voice["id"])] = str(voice["name"])
+
+        next_page = data.get("next_page")
+        has_more = data.get("has_more")
+        if not has_more or not next_page:
+            break
+
+        starting_after = str(next_page)
+
+    return voices
+
+
 def get_available_voices(request) -> dict:
     """Returns {voice_id: voice_name} dict"""
     available_voices = {}
     if request.app.state.config.TTS_ENGINE == "openai":
-        # Use custom endpoint if not using the official OpenAI API URL
-        if not request.app.state.config.TTS_OPENAI_API_BASE_URL.startswith(
-            "https://api.openai.com"
-        ):
+        base_url = request.app.state.config.TTS_OPENAI_API_BASE_URL or ""
+        if "cartesia.ai" in base_url:
             try:
-                response = requests.get(
-                    f"{request.app.state.config.TTS_OPENAI_API_BASE_URL}/audio/voices"
+                available_voices = get_cartesia_voices(
+                    api_key=request.app.state.config.TTS_OPENAI_API_KEY,
+                    base_url=base_url,
+                    cartesia_version=get_cartesia_version_from_tts_openai_params(request),
                 )
+            except Exception as e:
+                log.error(f"Error fetching voices from Cartesia: {str(e)}")
+                available_voices = {
+                    "alloy": "alloy",
+                    "echo": "echo",
+                    "fable": "fable",
+                    "onyx": "onyx",
+                    "nova": "nova",
+                    "shimmer": "shimmer",
+                }
+        # Use custom endpoint if not using the official OpenAI API URL
+        elif not base_url.startswith("https://api.openai.com"):
+            try:
+                response = requests.get(f"{base_url}/audio/voices")
                 response.raise_for_status()
                 data = response.json()
                 voices_list = data.get("voices", [])

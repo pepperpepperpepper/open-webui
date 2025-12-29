@@ -1,6 +1,7 @@
 import asyncio
 import hashlib
 import json
+import time
 import logging
 from typing import Optional
 
@@ -918,6 +919,20 @@ async def generate_chat_completion(
     else:
         request_url = f"{url}/chat/completions"
 
+    # OWUI_LOCAL_PATCH_PROVIDER_TIMING
+    _owui_provider_selected_model = model_id
+    _owui_provider_sent_model = payload.get("model") if isinstance(payload, dict) else None
+    _owui_provider_base_url = url
+    _owui_provider_request_url = request_url
+    _owui_provider_is_cerebras = (
+        isinstance(_owui_provider_base_url, str)
+        and "cerebras" in _owui_provider_base_url.lower()
+    ) or (
+        isinstance(_owui_provider_selected_model, str)
+        and _owui_provider_selected_model.lower().startswith("cerebras.")
+    )
+    _owui_provider_t0 = None
+
     payload = json.dumps(payload)
 
     r = None
@@ -926,6 +941,11 @@ async def generate_chat_completion(
     response = None
 
     try:
+        _owui_provider_t0 = time.monotonic()
+        if _owui_provider_is_cerebras:
+            log.info(
+                f"[provider] start selected={_owui_provider_selected_model} sent={_owui_provider_sent_model} url={_owui_provider_request_url}"
+            )
         session = aiohttp.ClientSession(
             trust_env=True, timeout=aiohttp.ClientTimeout(total=AIOHTTP_CLIENT_TIMEOUT)
         )
@@ -939,16 +959,48 @@ async def generate_chat_completion(
             ssl=AIOHTTP_CLIENT_SESSION_SSL,
         )
 
+        _owui_provider_t_headers = time.monotonic()
+        _owui_provider_ct = r.headers.get("Content-Type", "")
+        if _owui_provider_is_cerebras:
+            log.info(
+                f"[provider] headers selected={_owui_provider_selected_model} sent={_owui_provider_sent_model} status={r.status} ct={_owui_provider_ct} dt={_owui_provider_t_headers - _owui_provider_t0:.3f}s url={_owui_provider_request_url}"
+            )
+
         # Check if response is SSE
         if "text/event-stream" in r.headers.get("Content-Type", ""):
             streaming = True
+
+            async def _owui_stream():
+                _owui_first_chunk = True
+                try:
+                    async for chunk in stream_chunks_handler(r.content):
+                        if _owui_first_chunk:
+                            _owui_first_chunk = False
+                            if _owui_provider_is_cerebras:
+                                _owui_ttft = time.monotonic() - _owui_provider_t0
+                                log.info(
+                                    f"[provider] first_chunk selected={_owui_provider_selected_model} sent={_owui_provider_sent_model} ttft={_owui_ttft:.3f}s url={_owui_provider_request_url}"
+                                )
+                        yield chunk
+                except Exception as e:
+                    if _owui_provider_is_cerebras:
+                        _owui_elapsed = time.monotonic() - _owui_provider_t0
+                        log.exception(
+                            f"[provider] stream_error selected={_owui_provider_selected_model} sent={_owui_provider_sent_model} elapsed={_owui_elapsed:.3f}s url={_owui_provider_request_url}: {e}"
+                        )
+                    raise
+                finally:
+                    if _owui_provider_is_cerebras:
+                        _owui_elapsed = time.monotonic() - _owui_provider_t0
+                        log.info(
+                            f"[provider] done selected={_owui_provider_selected_model} sent={_owui_provider_sent_model} status={r.status} elapsed={_owui_elapsed:.3f}s url={_owui_provider_request_url}"
+                        )
+                    await cleanup_response(r, session)
+
             return StreamingResponse(
-                stream_chunks_handler(r.content),
+                _owui_stream(),
                 status_code=r.status,
                 headers=dict(r.headers),
-                background=BackgroundTask(
-                    cleanup_response, response=r, session=session
-                ),
             )
         else:
             try:
@@ -956,6 +1008,12 @@ async def generate_chat_completion(
             except Exception as e:
                 log.error(e)
                 response = await r.text()
+
+            if _owui_provider_is_cerebras:
+                _owui_elapsed = time.monotonic() - _owui_provider_t0
+                log.info(
+                    f"[provider] done selected={_owui_provider_selected_model} sent={_owui_provider_sent_model} status={r.status} ct={_owui_provider_ct} elapsed={_owui_elapsed:.3f}s url={_owui_provider_request_url}"
+                )
 
             if r.status >= 400:
                 if isinstance(response, (dict, list)):
@@ -965,7 +1023,14 @@ async def generate_chat_completion(
 
             return response
     except Exception as e:
-        log.exception(e)
+        if _owui_provider_is_cerebras:
+            _owui_now = time.monotonic()
+            _owui_elapsed = _owui_now - (_owui_provider_t0 or _owui_now)
+            log.exception(
+                f"[provider] error selected={_owui_provider_selected_model} sent={_owui_provider_sent_model} elapsed={_owui_elapsed:.3f}s url={_owui_provider_request_url}: {e}"
+            )
+        else:
+            log.exception(e)
 
         raise HTTPException(
             status_code=r.status if r else 500,

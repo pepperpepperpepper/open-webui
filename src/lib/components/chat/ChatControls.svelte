@@ -43,6 +43,10 @@
 	let minSize = 0;
 
 	export const openPane = () => {
+		if (!pane) {
+			return;
+		}
+
 		if (parseInt(localStorage?.chatControlsSize)) {
 			const container = document.getElementById('chat-container');
 			let size = Math.floor(
@@ -96,29 +100,30 @@
 		// initialize the minSize based on the container width
 		minSize = Math.floor((350 / container.clientWidth) * 100);
 
-		// Create a new ResizeObserver instance
-		const resizeObserver = new ResizeObserver((entries) => {
-			for (let entry of entries) {
-				const width = entry.contentRect.width;
+			// Create a new ResizeObserver instance
+			const resizeObserver = new ResizeObserver((entries) => {
+				for (let entry of entries) {
+					const width = entry.contentRect.width;
 				// calculate the percentage of 350px
 				const percentage = (350 / width) * 100;
 				// set the minSize to the percentage, must be an integer
 				minSize = Math.floor(percentage);
 
-				if ($showControls) {
-					if (pane && pane.isExpanded() && pane.getSize() < minSize) {
-						pane.resize(minSize);
-					} else {
-						let size = Math.floor(
-							(parseInt(localStorage?.chatControlsSize) / container.clientWidth) * 100
-						);
-						if (size < minSize) {
-							pane.resize(minSize);
+					const currentPane = pane;
+					if ($showControls && currentPane) {
+						if (currentPane.isExpanded() && currentPane.getSize() < minSize) {
+							currentPane.resize(minSize);
+						} else {
+							let size = Math.floor(
+								(parseInt(localStorage?.chatControlsSize) / container.clientWidth) * 100
+							);
+							if (size < minSize) {
+								currentPane.resize(minSize);
+							}
 						}
 					}
 				}
-			}
-		});
+			});
 
 		// Start observing the container's size changes
 		resizeObserver.observe(container);
