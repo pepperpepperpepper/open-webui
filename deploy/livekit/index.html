@@ -1,0 +1,1423 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Open WebUI • LiveKit Voice</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica,
+          Arial, "Apple Color Emoji", "Segoe UI Emoji";
+      }
+      body {
+        margin: 0;
+        background: #0b0f19;
+        color: #e5e7eb;
+      }
+      .wrap {
+        max-width: 820px;
+        margin: 0 auto;
+        padding: 24px;
+      }
+      .card {
+        border: 1px solid #1f2937;
+        background: #0f172a;
+        border-radius: 12px;
+        padding: 16px;
+      }
+      .row {
+        display: flex;
+        gap: 12px;
+        flex-wrap: wrap;
+        align-items: center;
+      }
+      input {
+        background: #0b1220;
+        color: #e5e7eb;
+        border: 1px solid #1f2937;
+        border-radius: 8px;
+        padding: 10px 12px;
+        min-width: 280px;
+      }
+      select {
+        background: #0b1220;
+        color: #e5e7eb;
+        border: 1px solid #1f2937;
+        border-radius: 8px;
+        padding: 10px 12px;
+      }
+      input[type="checkbox"] {
+        min-width: auto;
+        transform: translateY(1px);
+      }
+      button {
+        background: #2563eb;
+        color: white;
+        border: none;
+        border-radius: 8px;
+        padding: 10px 14px;
+        cursor: pointer;
+        font-weight: 600;
+      }
+      button.secondary {
+        background: #334155;
+      }
+      button:disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
+      }
+      pre {
+        background: #0b1220;
+        border: 1px solid #1f2937;
+        border-radius: 8px;
+        padding: 12px;
+        overflow: auto;
+        max-height: 320px;
+        font-size: 12px;
+      }
+      .hint {
+        color: #94a3b8;
+        font-size: 13px;
+      }
+      .mono {
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
+          "Courier New", monospace;
+      }
+      details {
+        border: 1px solid #1f2937;
+        background: #0f172a;
+        border-radius: 12px;
+        padding: 12px 16px;
+      }
+      details summary {
+        cursor: pointer;
+        user-select: none;
+        font-weight: 700;
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-top: 12px;
+      }
+      th,
+      td {
+        border-top: 1px solid #1f2937;
+        padding: 10px 8px;
+        vertical-align: top;
+        text-align: left;
+        font-size: 13px;
+        color: #cbd5e1;
+      }
+      th {
+        color: #e2e8f0;
+        font-weight: 700;
+      }
+      .pill {
+        display: inline-block;
+        padding: 2px 8px;
+        border-radius: 999px;
+        border: 1px solid #1f2937;
+        background: #0b1220;
+        color: #cbd5e1;
+        font-size: 12px;
+        white-space: nowrap;
+      }
+      .log-controls {
+        margin-bottom: 10px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <h1>LiveKit Voice (PoC) <span class="pill mono">v2026-01-02</span></h1>
+      <p class="hint">
+        Uses your Open WebUI login token (<code>localStorage.token</code>) to mint a
+        short-lived LiveKit access token via <code>/token</code>.
+      </p>
+
+      <div class="card">
+        <div class="row">
+          <label>
+            Room
+            <input id="room" placeholder="owui-voice-…" />
+          </label>
+          <button id="connect">Connect</button>
+          <button id="disconnect" class="secondary" disabled>Disconnect</button>
+          <button id="apply" class="secondary" disabled>Apply (restart agent)</button>
+        </div>
+        <p class="hint" style="margin: 10px 0 0 0">
+          Change settings any time; click <span class="mono">Apply</span> to update the agent without disconnecting.
+          (The agent reads room settings on start.)
+        </p>
+
+        <div style="height: 12px"></div>
+        <div class="row">
+          <label>
+            Turn Detection
+            <select id="turn_detection">
+              <option value="ml">Turn Detector (ml)</option>
+              <option value="stt">STT-only</option>
+            </select>
+          </label>
+          <label>
+            Min Endpointing (s)
+            <input id="min_endpointing_delay" type="number" step="0.1" min="0" max="10" />
+          </label>
+          <label>
+            Max Endpointing (s)
+            <input id="max_endpointing_delay" type="number" step="0.1" min="0" max="10" />
+          </label>
+        </div>
+        <div style="height: 8px"></div>
+        <div class="row">
+          <label>
+            Allow Interruptions
+            <div>
+              <input id="allow_interruptions" type="checkbox" />
+            </div>
+          </label>
+          <label>
+            Min Interruption (s)
+            <input id="min_interruption_duration" type="number" step="0.1" min="0" max="10" />
+          </label>
+          <label>
+            Min Interruption Words
+            <input id="min_interruption_words" type="number" step="1" min="0" max="50" />
+          </label>
+        </div>
+        <div style="height: 8px"></div>
+        <div class="row">
+          <label style="flex: 1 1 520px">
+            Cartesia Voice (ID or name)
+            <input id="tts_voice" placeholder="(blank = server default)" />
+          </label>
+          <label>
+            Keep Screen Awake
+            <div>
+              <input id="keep_awake" type="checkbox" />
+            </div>
+          </label>
+        </div>
+        <div style="height: 8px"></div>
+        <p class="hint">
+          Room names must start with <code>owui-voice-</code>. This field is <em>not</em> the
+          Cartesia voice ID.
+        </p>
+        <p class="hint">
+          If you’re not logged into Open WebUI in this browser, open the main app first
+          so <code>localStorage.token</code> exists.
+        </p>
+      </div>
+
+      <div style="height: 12px"></div>
+      <details>
+        <summary>What do these settings do?</summary>
+        <p class="hint" style="margin: 10px 0 0 0">
+          These parameters are passed to the server when minting a LiveKit token
+          (<span class="mono">/token?…</span>) and affect how the voice agent detects when
+          you’re done speaking and whether it can “barge in” / be interrupted.
+        </p>
+        <table>
+          <thead>
+            <tr>
+              <th style="width: 28%">Setting</th>
+              <th>Meaning</th>
+              <th style="width: 22%">Typical / safe range</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><span class="pill">Room</span></td>
+              <td>
+                LiveKit room name. People in the same room hear the same agent.
+                Must start with <span class="mono">owui-voice-</span>.
+              </td>
+              <td>Any string that starts with <span class="mono">owui-voice-</span></td>
+            </tr>
+            <tr>
+              <td><span class="pill">Turn Detection</span></td>
+              <td>
+                How the agent decides you’ve finished speaking.
+                <span class="mono">ml</span> uses a dedicated turn detector; <span class="mono">stt</span>
+                relies more on STT endpointing.
+              </td>
+              <td><span class="mono">ml</span> (recommended) or <span class="mono">stt</span></td>
+            </tr>
+            <tr>
+              <td><span class="pill">Min Endpointing (s)</span></td>
+              <td>
+                Minimum silence before the agent considers your turn “done”.
+                Lower = faster response but more likely to cut you off.
+              </td>
+              <td>~1.5–4.0 (default 2.0)</td>
+            </tr>
+            <tr>
+              <td><span class="pill">Max Endpointing (s)</span></td>
+              <td>
+                Upper bound on how long the agent will wait for silence.
+                Higher = more patient; lower = snappier but may miss pauses.
+              </td>
+              <td>~4.0–8.0 (default 5.0)</td>
+            </tr>
+            <tr>
+              <td><span class="pill">Allow Interruptions</span></td>
+              <td>
+                If enabled, your speech can stop the agent mid-response (barge-in).
+                If disabled, the agent tends to finish talking before listening again.
+              </td>
+              <td>On or off</td>
+            </tr>
+            <tr>
+              <td><span class="pill">Min Interruption (s)</span></td>
+              <td>
+                How long you must be speaking before an interruption triggers.
+                Higher helps prevent false interruptions from short noises.
+              </td>
+              <td>~0.6–1.5 (default 0.7)</td>
+            </tr>
+            <tr>
+              <td><span class="pill">Min Interruption Words</span></td>
+              <td>
+                If &gt; 0, requires at least this many recognized words before interrupting.
+                Can reduce false interruptions but increases the time to interrupt.
+              </td>
+              <td>0–5 (default 2)</td>
+            </tr>
+            <tr>
+              <td><span class="pill">Cartesia Voice</span></td>
+              <td>
+                Optional voice selection for TTS (passed to the server as
+                <span class="mono">tts_voice</span>). This is separate from the room name.
+                You can prefill via <span class="mono">?voice=…</span>.
+              </td>
+              <td>Provider-specific (blank = server default)</td>
+            </tr>
+            <tr>
+              <td><span class="pill">Keep Screen Awake</span></td>
+              <td>
+                Requests a Screen Wake Lock while connected to reduce mobile sleep/lock
+                interruptions. Not supported on every browser.
+              </td>
+              <td>Recommended ON for mobile</td>
+            </tr>
+          </tbody>
+        </table>
+        <p class="hint" style="margin: 10px 0 0 0">
+          Debug tip: if audio suddenly stops, look for logs like <span class="mono">Track unsubscribed</span>,
+          <span class="mono">Participant disconnected</span>, or <span class="mono">Reconnecting</span>. If the
+          agent leaves the room, the root cause is usually in server logs (agent/TTS/STT/provider).
+        </p>
+        <p class="hint" style="margin: 10px 0 0 0">
+          Tuning tips:
+          <span class="mono">Interrupting too early</span> → raise Min Endpointing and/or Min Interruption, or disable
+          Allow Interruptions.
+          <span class="mono">Too slow to respond</span> → lower Min Endpointing.
+          <span class="mono">Misses your pauses / runs on</span> → lower Max Endpointing.
+        </p>
+      </details>
+
+      <h2>Transcript</h2>
+      <p class="hint" id="transcript_hint">
+        Saved in <code>localStorage</code> (per-room, per-device). Clear it any time.
+      </p>
+      <div class="row log-controls">
+        <button id="copy_transcript" class="secondary">Copy</button>
+        <button id="clear_transcript" class="secondary">Clear</button>
+      </div>
+      <pre id="transcript"></pre>
+
+      <h2>Logs</h2>
+      <div class="row log-controls">
+        <label>
+          Verbose Logs
+          <div>
+            <input id="verbose_logs" type="checkbox" />
+          </div>
+        </label>
+        <label>
+          Auto-scroll
+          <div>
+            <input id="autoscroll" type="checkbox" />
+          </div>
+        </label>
+        <button id="dump_state" class="secondary" disabled>Dump State</button>
+        <button id="copy_logs" class="secondary">Copy</button>
+        <button id="clear_logs" class="secondary">Clear</button>
+      </div>
+      <div id="status" class="hint"></div>
+      <pre id="log"></pre>
+      <div id="audio"></div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/livekit-client/dist/livekit-client.umd.min.js"></script>
+    <script>
+      const transcriptEl = document.getElementById("transcript");
+      const transcriptHintEl = document.getElementById("transcript_hint");
+      const copyTranscriptBtn = document.getElementById("copy_transcript");
+      const clearTranscriptBtn = document.getElementById("clear_transcript");
+
+      const logEl = document.getElementById("log");
+      const roomInput = document.getElementById("room");
+      const connectBtn = document.getElementById("connect");
+      const disconnectBtn = document.getElementById("disconnect");
+      const applyBtn = document.getElementById("apply");
+      const audioContainer = document.getElementById("audio");
+      const verboseLogsInput = document.getElementById("verbose_logs");
+      const autoscrollInput = document.getElementById("autoscroll");
+      const dumpStateBtn = document.getElementById("dump_state");
+      const clearLogsBtn = document.getElementById("clear_logs");
+      const copyLogsBtn = document.getElementById("copy_logs");
+      const statusEl = document.getElementById("status");
+
+      const turnDetectionSelect = document.getElementById("turn_detection");
+      const minEndpointingInput = document.getElementById("min_endpointing_delay");
+      const maxEndpointingInput = document.getElementById("max_endpointing_delay");
+      const allowInterruptionsInput = document.getElementById("allow_interruptions");
+      const minInterruptionDurationInput = document.getElementById("min_interruption_duration");
+      const minInterruptionWordsInput = document.getElementById("min_interruption_words");
+      const ttsVoiceInput = document.getElementById("tts_voice");
+      const keepAwakeInput = document.getElementById("keep_awake");
+
+      const SETTINGS_KEY = "owui_livekit_voice_settings";
+      const TRANSCRIPT_KEY_PREFIX = "owui_livekit_voice_transcript:";
+      const MAX_TRANSCRIPT_ITEMS = 500;
+
+      const MAX_LOG_LINES = 2000;
+      const logLines = [];
+      let lastAgentState = null;
+      let lastUserState = null;
+
+      let transcriptItems = [];
+      let transcriptRoom = null;
+
+      function toPlainError(e) {
+        if (!e) return null;
+        if (e instanceof Error) {
+          return { name: e.name, message: e.message, stack: e.stack };
+        }
+        if (typeof e === "object" && typeof e.message === "string") {
+          return { name: e.name || "Error", message: e.message, stack: e.stack };
+        }
+        return { name: "Error", message: String(e) };
+      }
+
+      function brief(v, depth = 0) {
+        if (v == null) return v;
+        const t = typeof v;
+        if (t === "string" || t === "number" || t === "boolean") return v;
+        if (Array.isArray(v)) {
+          if (depth >= 1) return `[Array ${v.length}]`;
+          return { _type: "Array", length: v.length, sample: v.slice(0, 8).map((x) => brief(x, depth + 1)) };
+        }
+        if (v instanceof Uint8Array) return `[Uint8Array ${v.byteLength}]`;
+        if (v instanceof Map) return `[Map ${v.size}]`;
+        if (v instanceof Set) return `[Set ${v.size}]`;
+        if (v instanceof Error) return toPlainError(v);
+        if (t !== "object") return String(v);
+
+        // LiveKit-ish objects can be huge / circular; keep just the helpful bits.
+        try {
+          if ("identity" in v && ("sid" in v || "participantSid" in v)) {
+            return {
+              identity: v.identity,
+              sid: v.sid ?? v.participantSid,
+              name: v.name,
+              isLocal: v.isLocal,
+            };
+          }
+          if ("trackSid" in v && "kind" in v) {
+            return {
+              kind: v.kind,
+              trackSid: v.trackSid,
+              source: v.source,
+              name: v.trackName,
+              mimeType: v.mimeType,
+              isMuted: v.isMuted,
+            };
+          }
+          if ("kind" in v && ("sid" in v || "mediaStreamTrack" in v)) {
+            return { kind: v.kind, sid: v.sid, source: v.source, muted: v.isMuted };
+          }
+        } catch {}
+
+        if (depth >= 1) return "[Object]";
+        const out = {};
+        try {
+          for (const k of Object.keys(v).slice(0, 12)) {
+            const vv = v[k];
+            if (vv == null) out[k] = vv;
+            else if (typeof vv === "string" || typeof vv === "number" || typeof vv === "boolean") {
+              out[k] = vv;
+            }
+          }
+        } catch {}
+        return out;
+      }
+
+      function isPlainObject(v) {
+        if (v == null || typeof v !== "object") return false;
+        const proto = Object.getPrototypeOf(v);
+        return proto === Object.prototype || proto === null;
+      }
+
+      function safeJson(value) {
+        try {
+          const seen = new WeakSet();
+          return JSON.stringify(value, (k, v) => {
+            if (typeof v === "object" && v !== null) {
+              if (seen.has(v)) return "[Circular]";
+              seen.add(v);
+            }
+            if (typeof v === "function") return `[Function ${v.name || "anonymous"}]`;
+            return v;
+          });
+        } catch {
+          try {
+            return String(value);
+          } catch {
+            return "[Unserializable]";
+          }
+        }
+      }
+
+      function transcriptStorageKey(roomName) {
+        return `${TRANSCRIPT_KEY_PREFIX}${roomName}`;
+      }
+
+      function formatTranscriptItem(item) {
+        const ts = item?.ts ? new Date(item.ts) : new Date();
+        const time = ts.toISOString().replace("T", " ").replace("Z", "Z");
+        const role = item?.role || "unknown";
+        const label = role === "user" ? "You" : role === "assistant" ? "Assistant" : role;
+        const text = String(item?.text || "");
+        return `[${time}] ${label}: ${text}`;
+      }
+
+      function renderTranscript() {
+        if (!transcriptEl) return;
+
+        try {
+          if (transcriptHintEl) {
+            transcriptHintEl.textContent = transcriptRoom
+              ? `Saved in localStorage (room=${transcriptRoom}, per-device). Clear it any time.`
+              : "Saved in localStorage (per-room, per-device). Clear it any time.";
+          }
+        } catch {}
+
+        transcriptEl.textContent = transcriptItems.map(formatTranscriptItem).join("\n") + "\n";
+      }
+
+      function loadTranscript(roomName) {
+        transcriptRoom = roomName || null;
+        transcriptItems = [];
+
+        if (!roomName) {
+          renderTranscript();
+          return;
+        }
+
+        try {
+          const raw = localStorage.getItem(transcriptStorageKey(roomName));
+          const parsed = raw ? JSON.parse(raw) : [];
+          if (Array.isArray(parsed)) transcriptItems = parsed;
+        } catch {}
+
+        renderTranscript();
+      }
+
+      function persistTranscript() {
+        if (!transcriptRoom) return;
+        try {
+          localStorage.setItem(
+            transcriptStorageKey(transcriptRoom),
+            JSON.stringify(transcriptItems.slice(-MAX_TRANSCRIPT_ITEMS))
+          );
+        } catch {}
+      }
+
+      function appendTranscript(role, text, meta = {}) {
+        const roomName = transcriptRoom || roomInput.value.trim();
+        if (roomName && roomName !== transcriptRoom) loadTranscript(roomName);
+
+        const t = typeof text === "string" ? text.trim() : String(text || "").trim();
+        if (!t) return;
+
+        const MAX_LEN = 5000;
+        const clipped = t.length > MAX_LEN ? `${t.slice(0, MAX_LEN)}…` : t;
+
+        const last = transcriptItems.length ? transcriptItems[transcriptItems.length - 1] : null;
+        if (last && last.role === role && String(last.text || "") === clipped) return;
+
+        transcriptItems.push({
+          ts: Date.now(),
+          role,
+          text: clipped,
+          ...meta,
+        });
+        if (transcriptItems.length > MAX_TRANSCRIPT_ITEMS) {
+          transcriptItems.splice(0, transcriptItems.length - MAX_TRANSCRIPT_ITEMS);
+        }
+        persistTranscript();
+        renderTranscript();
+      }
+
+      function log(level, msg, data) {
+        const ts = new Date().toISOString();
+        const prepared = data === undefined ? undefined : isPlainObject(data) ? data : brief(data);
+        const payload = data === undefined ? "" : ` ${safeJson(prepared)}`;
+        logLines.push(`[${ts}] ${level}: ${msg}${payload}`);
+        if (logLines.length > MAX_LOG_LINES) {
+          logLines.splice(0, logLines.length - MAX_LOG_LINES);
+        }
+        logEl.textContent = logLines.join("\n") + "\n";
+        if (autoscrollInput.checked) logEl.scrollTop = logEl.scrollHeight;
+      }
+
+      function info(msg, data) {
+        log("INFO", msg, data);
+      }
+      function warn(msg, data) {
+        log("WARN", msg, data);
+      }
+      function error(msg, data) {
+        log("ERROR", msg, data);
+      }
+      function debug(msg, data) {
+        if (!verboseLogsInput.checked) return;
+        log("DEBUG", msg, data);
+      }
+
+      function setStatus(next) {
+        statusEl.textContent = next;
+      }
+
+      function renderStatus() {
+        const parts = [];
+        if (lastUserState) parts.push(`User: ${lastUserState}`);
+        if (lastAgentState) parts.push(`Agent: ${lastAgentState}`);
+        setStatus(parts.length ? parts.join(" • ") : "");
+      }
+
+      function decodeDataPayload(payload) {
+        if (payload == null) return null;
+        if (typeof payload === "string") return payload;
+        try {
+          if (payload instanceof Uint8Array) {
+            return new TextDecoder().decode(payload);
+          }
+          if (payload instanceof ArrayBuffer) {
+            return new TextDecoder().decode(new Uint8Array(payload));
+          }
+        } catch {}
+        return null;
+      }
+
+      function handleOwuiVoiceEvent(obj, meta) {
+        if (!obj || typeof obj !== "object") return;
+        if (obj.type !== "owui.voice.event") return;
+
+        const ev = String(obj.event || "");
+        const data = obj.data;
+
+        const tsFromCreatedAt = (createdAtSeconds) => {
+          if (typeof createdAtSeconds !== "number" || !Number.isFinite(createdAtSeconds)) return null;
+          // created_at is seconds since epoch; transcript expects ms.
+          const ms = Math.round(createdAtSeconds * 1000);
+          if (!Number.isFinite(ms) || ms <= 0) return null;
+          return ms;
+        };
+
+        if (ev === "agent_state_changed" && data) {
+          lastAgentState = data.new_state || null;
+          renderStatus();
+          info(`Agent state → ${data.new_state}`, { old: data.old_state, new: data.new_state });
+          return;
+        }
+        if (ev === "user_state_changed" && data) {
+          lastUserState = data.new_state || null;
+          renderStatus();
+          debug(`User state → ${data.new_state}`, { old: data.old_state, new: data.new_state });
+          return;
+        }
+
+        if (ev === "user_input_transcribed" && data) {
+          // Verbose only: partial transcripts can be noisy.
+          const label = data.is_final ? "You said" : "STT partial";
+          (data.is_final ? info : debug)(label, {
+            transcript: data.transcript,
+            language: data.language,
+          });
+          if (data.is_final && data.transcript) {
+            appendTranscript("user", data.transcript, {
+              language: data.language || null,
+              ts: tsFromCreatedAt(data.created_at) ?? Date.now(),
+            });
+          }
+          return;
+        }
+
+        if (ev === "conversation_item_added" && data) {
+          const role = data.role || "unknown";
+          const text = data.text || "";
+          const metrics = data.metrics || null;
+          const trimmed =
+            typeof text === "string" && text.length > 500 ? `${text.slice(0, 500)}…` : text;
+          if (role === "assistant" && text) {
+            appendTranscript("assistant", text, {
+              metrics: metrics || null,
+              ts: tsFromCreatedAt(data.created_at) ?? Date.now(),
+            });
+          }
+          if (!verboseLogsInput.checked && role !== "assistant") return;
+          info(`Chat item added (${role})`, { text: trimmed, metrics });
+          return;
+        }
+
+        if (ev === "metrics_collected" && data) {
+          const m = data?.metrics;
+          const mt = m?.type;
+          if (mt === "eou_metrics") {
+            info("EOU metrics", m);
+          } else if (mt === "llm_metrics") {
+            info("LLM metrics", m);
+          } else if (mt === "tts_metrics") {
+            info("TTS metrics", m);
+          } else if (mt === "stt_metrics") {
+            debug("STT metrics", m);
+          } else {
+            debug("Metrics collected", data);
+          }
+          return;
+        }
+
+        if (ev === "speech_created" && data) {
+          debug("Speech created", data);
+          return;
+        }
+
+        if (ev === "function_tools_executed" && data) {
+          info("Tools executed", data);
+          return;
+        }
+
+        if (ev === "agent_false_interruption" && data) {
+          warn("False interruption", data);
+          return;
+        }
+
+        if (ev === "error" && data) {
+          error("Agent error", data);
+          return;
+        }
+
+        if (ev === "close" && data) {
+          warn("Agent session closed", data);
+          return;
+        }
+
+        if (ev === "agent_starting") {
+          info("Agent starting", data);
+          return;
+        }
+
+        debug("Agent event", { ev, data, meta });
+      }
+
+      function bindDataEvents(room) {
+        const E = LivekitClient.RoomEvent || {};
+        const ev = E.DataReceived || E.DataPacketReceived || E.Data;
+        if (!ev) {
+          warn("No LiveKit data event found (cannot show agent debug events)");
+          return;
+        }
+
+        room.on(ev, (...args) => {
+          // Expected (varies by livekit-client version):
+          //   (payload, participant, kind, topic)
+          const payload = args[0];
+          const participant = args[1];
+          const kind = args[2];
+          const topic = args[3];
+
+          const text = decodeDataPayload(payload);
+          const meta = {
+            from: participant?.identity,
+            topic,
+            kind,
+          };
+
+          if (text) {
+            try {
+              const obj = JSON.parse(text);
+              handleOwuiVoiceEvent(obj, meta);
+              return;
+            } catch {
+              // not json, fallthrough
+            }
+          }
+
+          debug("Data received (unparsed)", { ...meta, payload: brief(payload), text });
+        });
+      }
+
+      function randomRoom() {
+        return `owui-voice-${Math.random().toString(16).slice(2)}${Math.random()
+          .toString(16)
+          .slice(2)}`.slice(0, 36);
+      }
+
+      const DEFAULT_ROOM = "owui-voice-c8d92187395538d10f1fd9402";
+      const ROOM_KEY = "owui_livekit_voice_room";
+      try {
+        const savedRoom = (localStorage.getItem(ROOM_KEY) || "").trim();
+        if (savedRoom && savedRoom.startsWith("owui-voice-")) {
+          roomInput.value = savedRoom;
+        } else if (DEFAULT_ROOM && DEFAULT_ROOM.startsWith("owui-voice-")) {
+          roomInput.value = DEFAULT_ROOM;
+        } else {
+          roomInput.value = randomRoom();
+        }
+      } catch {
+        roomInput.value =
+          DEFAULT_ROOM && DEFAULT_ROOM.startsWith("owui-voice-") ? DEFAULT_ROOM : randomRoom();
+      }
+      loadTranscript(roomInput.value.trim());
+
+      let lkRoom = null;
+      let wakeLockSentinel = null;
+
+      async function acquireWakeLock() {
+        if (!("wakeLock" in navigator)) {
+          info("Wake Lock: not supported by this browser");
+          return;
+        }
+        if (wakeLockSentinel) return;
+        try {
+          wakeLockSentinel = await navigator.wakeLock.request("screen");
+          wakeLockSentinel.addEventListener("release", () => {
+            wakeLockSentinel = null;
+            info("Wake Lock: released");
+          });
+          info("Wake Lock: acquired");
+        } catch (e) {
+          warn("Wake Lock: failed", toPlainError(e) ?? e);
+        }
+      }
+
+      async function releaseWakeLock() {
+        if (!wakeLockSentinel) return;
+        try {
+          await wakeLockSentinel.release();
+        } catch {}
+        wakeLockSentinel = null;
+      }
+
+      function getSettings() {
+        return {
+          turn_detection: turnDetectionSelect.value,
+          allow_interruptions: allowInterruptionsInput.checked,
+          min_endpointing_delay: minEndpointingInput.value,
+          max_endpointing_delay: maxEndpointingInput.value,
+          min_interruption_duration: minInterruptionDurationInput.value,
+          min_interruption_words: minInterruptionWordsInput.value,
+          tts_voice: ttsVoiceInput.value,
+          keep_awake: keepAwakeInput.checked,
+          verbose_logs: verboseLogsInput.checked,
+          autoscroll: autoscrollInput.checked,
+        };
+      }
+
+      function persistSettings() {
+        try {
+          localStorage.setItem(SETTINGS_KEY, JSON.stringify(getSettings()));
+        } catch {}
+      }
+
+      function loadSettings() {
+        const defaults = {
+          turn_detection: "ml",
+          allow_interruptions: true,
+          min_endpointing_delay: "2",
+          max_endpointing_delay: "5.0",
+          min_interruption_duration: "0.7",
+          min_interruption_words: "2",
+          tts_voice: "",
+          keep_awake: true,
+          verbose_logs: true,
+          autoscroll: true,
+        };
+
+        let saved = null;
+        try {
+          saved = JSON.parse(localStorage.getItem(SETTINGS_KEY) || "null");
+        } catch {
+          saved = null;
+        }
+
+        const s = { ...defaults, ...(saved && typeof saved === "object" ? saved : {}) };
+        turnDetectionSelect.value = s.turn_detection || "ml";
+        allowInterruptionsInput.checked = !!s.allow_interruptions;
+        minEndpointingInput.value = s.min_endpointing_delay ?? defaults.min_endpointing_delay;
+        maxEndpointingInput.value = s.max_endpointing_delay ?? defaults.max_endpointing_delay;
+        minInterruptionDurationInput.value =
+          s.min_interruption_duration ?? defaults.min_interruption_duration;
+        minInterruptionWordsInput.value = s.min_interruption_words ?? defaults.min_interruption_words;
+        ttsVoiceInput.value = s.tts_voice ?? defaults.tts_voice;
+        keepAwakeInput.checked = s.keep_awake ?? defaults.keep_awake;
+        verboseLogsInput.checked = s.verbose_logs ?? defaults.verbose_logs;
+        autoscrollInput.checked = s.autoscroll ?? defaults.autoscroll;
+      }
+
+      loadSettings();
+
+      info("Client ready", {
+        userAgent: navigator.userAgent,
+        wakeLock: "wakeLock" in navigator,
+        mediaDevices: !!navigator.mediaDevices,
+      });
+      info("Network status", { online: navigator.onLine });
+
+      // Support pre-filling via URL params, e.g. /livekit/?voice=<cartesia_voice_id>
+      try {
+        const urlParams = new URLSearchParams(window.location.search);
+        const voiceParam = (urlParams.get("voice") || urlParams.get("tts_voice") || "").trim();
+        if (voiceParam) {
+          ttsVoiceInput.value = voiceParam;
+        }
+      } catch {}
+
+      async function mintToken(roomName) {
+        const token = localStorage.getItem("token");
+        if (!token) throw new Error("Missing Open WebUI token in localStorage.token");
+
+        const settings = getSettings();
+        const params = new URLSearchParams({ room: roomName });
+        params.set("turn_detection", settings.turn_detection);
+        params.set("allow_interruptions", settings.allow_interruptions ? "true" : "false");
+        if (settings.tts_voice && settings.tts_voice.trim()) {
+          params.set("tts_voice", settings.tts_voice.trim());
+        }
+        if (settings.min_endpointing_delay) {
+          params.set("min_endpointing_delay", settings.min_endpointing_delay);
+        }
+        if (settings.max_endpointing_delay) {
+          params.set("max_endpointing_delay", settings.max_endpointing_delay);
+        }
+        if (settings.min_interruption_duration) {
+          params.set("min_interruption_duration", settings.min_interruption_duration);
+        }
+        if (settings.min_interruption_words) {
+          params.set("min_interruption_words", settings.min_interruption_words);
+        }
+
+        debug("Token mint request", { path: "/token", query: params.toString() });
+        const res = await fetch(`token?${params.toString()}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (!res.ok) {
+          let detail = "";
+          try {
+            const data = await res.json();
+            detail = data?.detail ?? JSON.stringify(data);
+          } catch {
+            try {
+              detail = await res.text();
+            } catch {
+              detail = "";
+            }
+          }
+          throw new Error(`Token mint failed: ${res.status}${detail ? ` - ${detail}` : ""}`);
+        }
+        const payload = await res.json();
+        debug("Token mint response", payload);
+        return payload;
+      }
+
+      async function applyAgentSettings(roomName, { force = false } = {}) {
+        const token = localStorage.getItem("token");
+        if (!token) throw new Error("Missing Open WebUI token in localStorage.token");
+
+        const settings = getSettings();
+        const params = new URLSearchParams({ room: roomName });
+        params.set("turn_detection", settings.turn_detection);
+        params.set("allow_interruptions", settings.allow_interruptions ? "true" : "false");
+        if (settings.tts_voice && settings.tts_voice.trim()) {
+          params.set("tts_voice", settings.tts_voice.trim());
+        }
+        if (settings.min_endpointing_delay) {
+          params.set("min_endpointing_delay", settings.min_endpointing_delay);
+        }
+        if (settings.max_endpointing_delay) {
+          params.set("max_endpointing_delay", settings.max_endpointing_delay);
+        }
+        if (settings.min_interruption_duration) {
+          params.set("min_interruption_duration", settings.min_interruption_duration);
+        }
+        if (settings.min_interruption_words) {
+          params.set("min_interruption_words", settings.min_interruption_words);
+        }
+        if (force) {
+          params.set("force", "true");
+        }
+
+        debug("Apply request", { path: "/apply", query: params.toString() });
+        const res = await fetch(`apply?${params.toString()}`, {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (!res.ok) {
+          let detail = "";
+          try {
+            const data = await res.json();
+            detail = data?.detail ?? JSON.stringify(data);
+          } catch {
+            try {
+              detail = await res.text();
+            } catch {
+              detail = "";
+            }
+          }
+          const err = new Error(`Apply failed: ${res.status}${detail ? ` - ${detail}` : ""}`);
+          err.status = res.status;
+          throw err;
+        }
+        const payload = await res.json();
+        debug("Apply response", payload);
+        return payload;
+      }
+
+      function attachTrack(track, pub, participant) {
+        // Create a new <audio> for each remote audio track.
+        const el = track.attach();
+        el.autoplay = true;
+        el.controls = true;
+        el.playsInline = true;
+
+        el.addEventListener("play", () => debug("Audio element: play"));
+        el.addEventListener("pause", () => debug("Audio element: pause"));
+        el.addEventListener("ended", () => warn("Audio element: ended"));
+        el.addEventListener("stalled", () => warn("Audio element: stalled"));
+        el.addEventListener("waiting", () => debug("Audio element: waiting"));
+        el.addEventListener("error", () => {
+          const err = el.error
+            ? { code: el.error.code, message: el.error.message }
+            : { code: null, message: null };
+          error("Audio element: error", err);
+        });
+
+        // Autoplay can still fail on some mobile browsers; surface the reason.
+        try {
+          const p = el.play();
+          if (p && typeof p.catch === "function") {
+            p.catch((e) => warn("Audio element: play() rejected", toPlainError(e) ?? e));
+          }
+        } catch (e) {
+          warn("Audio element: play() threw", toPlainError(e) ?? e);
+        }
+
+        audioContainer.appendChild(el);
+        debug("Audio track attached", { track: brief(track), pub: brief(pub), participant: brief(participant) });
+      }
+
+      function clearAudio() {
+        while (audioContainer.firstChild) {
+          try {
+            audioContainer.firstChild.remove();
+          } catch {
+            break;
+          }
+        }
+      }
+
+      function bindRoomEvents(room) {
+        const E = LivekitClient.RoomEvent || {};
+
+        const on = (eventName, level, label) => {
+          const ev = E[eventName];
+          if (!ev) return;
+          room.on(ev, (...args) => {
+            const payload = args.length ? args.map((a) => brief(a)) : undefined;
+            if (level === "DEBUG") debug(label, payload);
+            else if (level === "INFO") info(label, payload);
+            else if (level === "WARN") warn(label, payload);
+            else error(label, payload);
+          });
+        };
+
+        on("ConnectionStateChanged", "INFO", "Connection state changed");
+        on("Reconnecting", "WARN", "Reconnecting");
+        on("Reconnected", "INFO", "Reconnected");
+        on("Disconnected", "WARN", "Disconnected");
+
+        on("ParticipantConnected", "INFO", "Participant connected");
+        on("ParticipantDisconnected", "WARN", "Participant disconnected");
+        on("ParticipantMetadataChanged", "DEBUG", "Participant metadata changed");
+        on("RoomMetadataChanged", "DEBUG", "Room metadata changed");
+
+        on("TrackPublished", "DEBUG", "Track published");
+        on("TrackUnpublished", "DEBUG", "Track unpublished");
+        on("TrackSubscribed", "INFO", "Track subscribed");
+        on("TrackUnsubscribed", "WARN", "Track unsubscribed");
+        on("TrackMuted", "DEBUG", "Track muted");
+        on("TrackUnmuted", "DEBUG", "Track unmuted");
+        on("TrackSubscriptionFailed", "ERROR", "Track subscription failed");
+        on("TrackSubscriptionStatusChanged", "DEBUG", "Track subscription status changed");
+        on("TrackStreamStateChanged", "DEBUG", "Track stream state changed");
+
+        on("LocalTrackPublished", "DEBUG", "Local track published");
+        on("LocalTrackUnpublished", "DEBUG", "Local track unpublished");
+
+        // Optional: bind all remaining RoomEvents in verbose mode.
+        if (verboseLogsInput.checked) {
+          const already = new Set([
+            "ConnectionStateChanged",
+            "Reconnecting",
+            "Reconnected",
+            "Disconnected",
+            "ParticipantConnected",
+            "ParticipantDisconnected",
+            "ParticipantMetadataChanged",
+            "RoomMetadataChanged",
+            "TrackPublished",
+            "TrackUnpublished",
+            "TrackSubscribed",
+            "TrackUnsubscribed",
+            "TrackMuted",
+            "TrackUnmuted",
+            "TrackSubscriptionFailed",
+            "TrackSubscriptionStatusChanged",
+            "TrackStreamStateChanged",
+            "LocalTrackPublished",
+            "LocalTrackUnpublished",
+          ]);
+          for (const [k, v] of Object.entries(E)) {
+            if (already.has(k)) continue;
+            try {
+              room.on(v, (...args) => {
+                debug(`RoomEvent.${k}`, args.length ? args.map((a) => brief(a)) : undefined);
+              });
+            } catch {}
+          }
+        }
+      }
+
+      function validateSettings() {
+        const s = getSettings();
+        const minE = Number(s.min_endpointing_delay);
+        const maxE = Number(s.max_endpointing_delay);
+        if (Number.isFinite(minE) && Number.isFinite(maxE) && minE > maxE) {
+          throw new Error("Min Endpointing (s) must be <= Max Endpointing (s)");
+        }
+      }
+
+      function dumpState() {
+        if (!lkRoom) {
+          info("State: not connected");
+          return;
+        }
+
+        const remoteParticipants = [];
+        try {
+          lkRoom.remoteParticipants?.forEach?.((p) => {
+            remoteParticipants.push({
+              identity: p.identity,
+              sid: p.sid,
+              tracks: Array.from(p.trackPublications?.values?.() || []).map((pub) => brief(pub)),
+            });
+          });
+        } catch {}
+
+        const state = {
+          roomName: lkRoom.name,
+          connectionState: lkRoom.state,
+          localParticipant: brief(lkRoom.localParticipant),
+          remoteParticipants,
+        };
+        info("State dump", state);
+      }
+
+      function setConnectedUI(connected) {
+        disconnectBtn.disabled = !connected;
+        connectBtn.disabled = connected;
+        dumpStateBtn.disabled = !connected;
+        applyBtn.disabled = !connected;
+      }
+
+      connectBtn.addEventListener("click", async () => {
+        connectBtn.disabled = true;
+        try {
+          validateSettings();
+          persistSettings();
+
+          if (keepAwakeInput.checked) {
+            await acquireWakeLock();
+          }
+
+          const roomName = roomInput.value.trim();
+          if (!roomName) throw new Error("Room is required");
+          if (!roomName.startsWith("owui-voice-")) {
+            throw new Error(
+              "Invalid room: must start with owui-voice- (this is not the Cartesia voice ID)"
+            );
+          }
+
+          clearAudio();
+          info("Settings", getSettings());
+
+          const t0 = performance.now();
+          info(`Minting token for room=${roomName}...`);
+          const { url, token, room } = await mintToken(roomName);
+          if (room) roomInput.value = room;
+          try {
+            localStorage.setItem(ROOM_KEY, roomInput.value.trim());
+          } catch {}
+          loadTranscript(roomInput.value.trim());
+          info("Token minted", { ms: Math.round(performance.now() - t0), url, room: roomInput.value.trim() });
+
+          info(`Connecting to LiveKit @ ${url}...`);
+          lkRoom = new LivekitClient.Room();
+
+          bindRoomEvents(lkRoom);
+          bindDataEvents(lkRoom);
+
+          try {
+            await lkRoom.connect(url, token);
+          } catch (e) {
+            throw new Error(`LiveKit connect failed: ${toPlainError(e)?.message ?? e}`);
+          }
+
+          try {
+            info("Enabling microphone...");
+            await lkRoom.localParticipant.setMicrophoneEnabled(true);
+            info("Microphone enabled");
+          } catch (e) {
+            throw new Error(`Microphone enable failed: ${toPlainError(e)?.message ?? e}`);
+          }
+
+          // Attach remote audio tracks already present (if any).
+          try {
+            lkRoom.remoteParticipants?.forEach?.((p) => {
+              try {
+                p.trackPublications?.forEach?.((pub) => {
+                  if (pub?.track && pub.kind === "audio") {
+                    attachTrack(pub.track, pub, p);
+                  }
+                });
+              } catch {}
+            });
+          } catch {}
+
+          // Attach future subscribed audio tracks.
+          const E = LivekitClient.RoomEvent || {};
+          if (E.TrackSubscribed) {
+            lkRoom.on(E.TrackSubscribed, (track, pub, participant) => {
+              if (track?.kind === "audio") {
+                info("Remote audio track subscribed", { participant: brief(participant), pub: brief(pub) });
+                attachTrack(track, pub, participant);
+              } else {
+                debug("Non-audio track subscribed", { track: brief(track), pub: brief(pub), participant: brief(participant) });
+              }
+            });
+          }
+          if (E.TrackUnsubscribed) {
+            lkRoom.on(E.TrackUnsubscribed, (track, pub, participant) => {
+              warn("Track unsubscribed", { track: brief(track), pub: brief(pub), participant: brief(participant) });
+            });
+          }
+          if (E.ParticipantDisconnected) {
+            lkRoom.on(E.ParticipantDisconnected, (p) => {
+              warn("Participant disconnected", { identity: p?.identity, note: "If this was the agent, check server logs for the root cause." });
+            });
+          }
+          if (E.Disconnected) {
+            lkRoom.on(E.Disconnected, (reason) => {
+              warn("Disconnected event", reason);
+              setConnectedUI(false);
+              lkRoom = null;
+              releaseWakeLock();
+            });
+          }
+
+          info("Connected");
+          setConnectedUI(true);
+        } catch (e) {
+          error("Connect failed", toPlainError(e) ?? e);
+          connectBtn.disabled = false;
+          releaseWakeLock();
+          setConnectedUI(false);
+        }
+      });
+
+      applyBtn.addEventListener("click", async () => {
+        if (!lkRoom) {
+          warn("Apply requested but not connected");
+          return;
+        }
+
+        applyBtn.disabled = true;
+        try {
+          validateSettings();
+          persistSettings();
+
+          if (keepAwakeInput.checked) {
+            await acquireWakeLock();
+          }
+
+          const roomName = lkRoom.name || roomInput.value.trim();
+          if (!roomName) throw new Error("Room is required");
+          roomInput.value = roomName;
+
+          info("Applying settings (restarting agent)…", { room: roomName, settings: getSettings() });
+          clearAudio();
+
+          try {
+            const payload = await applyAgentSettings(roomName, { force: false });
+            info("Apply OK", payload);
+          } catch (e) {
+            const status = e?.status;
+            const msg = e?.message || String(e);
+            if (status === 409) {
+              warn(msg);
+              const ok = confirm(
+                "Other participants are in this room. Restarting the agent may interrupt them.\n\nRestart anyway?"
+              );
+              if (!ok) return;
+              const payload = await applyAgentSettings(roomName, { force: true });
+              info("Apply OK (forced)", payload);
+            } else {
+              throw e;
+            }
+          }
+
+          info("Waiting for agent to reconnect…");
+        } catch (e) {
+          error("Apply failed", toPlainError(e) ?? e);
+        } finally {
+          applyBtn.disabled = !lkRoom;
+        }
+      });
+
+      disconnectBtn.addEventListener("click", async () => {
+        disconnectBtn.disabled = true;
+        if (lkRoom) {
+          info("Disconnecting...");
+          lkRoom.disconnect(true);
+        }
+        releaseWakeLock();
+        setConnectedUI(false);
+      });
+
+      roomInput.addEventListener("change", () => {
+        try {
+          const val = roomInput.value.trim();
+          if (val) localStorage.setItem(ROOM_KEY, val);
+        } catch {}
+        loadTranscript(roomInput.value.trim());
+      });
+
+      // Wake locks get released when the page goes into the background; re-acquire on return.
+      document.addEventListener("visibilitychange", () => {
+        debug("visibilitychange", { state: document.visibilityState });
+        if (document.visibilityState === "visible" && lkRoom && keepAwakeInput.checked) {
+          acquireWakeLock();
+        }
+      });
+
+      function setupCopy() {
+        try {
+          const text = logLines.join("\n") + "\n";
+          if (navigator.clipboard?.writeText) return navigator.clipboard.writeText(text);
+        } catch {}
+        // Fallback for older browsers.
+        try {
+          const ta = document.createElement("textarea");
+          ta.value = logLines.join("\n") + "\n";
+          document.body.appendChild(ta);
+          ta.select();
+          document.execCommand("copy");
+          ta.remove();
+          return Promise.resolve();
+        } catch (e) {
+          return Promise.reject(e);
+        }
+      }
+
+      function setupCopyTranscript() {
+        try {
+          const text = transcriptItems.map(formatTranscriptItem).join("\n") + "\n";
+          if (navigator.clipboard?.writeText) return navigator.clipboard.writeText(text);
+        } catch {}
+        // Fallback for older browsers.
+        try {
+          const ta = document.createElement("textarea");
+          ta.value = transcriptItems.map(formatTranscriptItem).join("\n") + "\n";
+          document.body.appendChild(ta);
+          ta.select();
+          document.execCommand("copy");
+          ta.remove();
+          return Promise.resolve();
+        } catch (e) {
+          return Promise.reject(e);
+        }
+      }
+
+      clearLogsBtn.addEventListener("click", () => {
+        logLines.length = 0;
+        logEl.textContent = "";
+        info("Logs cleared");
+      });
+
+      clearTranscriptBtn.addEventListener("click", () => {
+        transcriptItems.length = 0;
+        try {
+          if (transcriptRoom) localStorage.removeItem(transcriptStorageKey(transcriptRoom));
+        } catch {}
+        renderTranscript();
+        info("Transcript cleared");
+      });
+
+      copyLogsBtn.addEventListener("click", async () => {
+        try {
+          await setupCopy();
+          info("Logs copied to clipboard");
+        } catch (e) {
+          warn("Copy failed", toPlainError(e) ?? e);
+        }
+      });
+
+      copyTranscriptBtn.addEventListener("click", async () => {
+        try {
+          await setupCopyTranscript();
+          info("Transcript copied to clipboard");
+        } catch (e) {
+          warn("Copy failed", toPlainError(e) ?? e);
+        }
+      });
+
+      dumpStateBtn.addEventListener("click", () => dumpState());
+
+      // Surface unexpected client-side failures into the log panel.
+      window.addEventListener("error", (ev) => {
+        error("Unhandled error", {
+          message: ev.message,
+          source: ev.filename,
+          lineno: ev.lineno,
+          colno: ev.colno,
+          error: toPlainError(ev.error) ?? ev.error,
+        });
+      });
+      window.addEventListener("unhandledrejection", (ev) => {
+        error("Unhandled promise rejection", toPlainError(ev.reason) ?? ev.reason);
+      });
+
+      window.addEventListener("online", () => info("Network: online"));
+      window.addEventListener("offline", () => warn("Network: offline"));
+      try {
+        navigator.mediaDevices?.addEventListener?.("devicechange", () => {
+          info("Media devices changed");
+        });
+      } catch {}
+    </script>
+  </body>
+</html>

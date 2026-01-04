@@ -1,0 +1,18 @@
+#!/bin/sh
+set -eu
+
+cd /home/pepper/apps/open-webui
+
+export HOME=/home/pepper
+export TMPDIR=/home/pepper/tmp/open-webui-livekit-portal-runtime
+export PORT=8091
+
+set -a
+. /home/pepper/apps/open-webui/.env
+if [ -f /home/pepper/apps/open-webui/deploy/livekit/livekit.env ]; then
+  . /home/pepper/apps/open-webui/deploy/livekit/livekit.env
+fi
+set +a
+
+exec /usr/bin/s6-setuidgid pepper \
+  /home/pepper/apps/open-webui/.venv/bin/python /home/pepper/apps/open-webui/deploy/livekit/portal.py

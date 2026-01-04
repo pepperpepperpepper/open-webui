@@ -1,0 +1,19 @@
+#!/bin/sh
+set -eu
+
+cd /home/pepper/apps/open-webui
+
+export HOME=/home/pepper
+export TMPDIR=/home/pepper/tmp/open-webui-livekit-agent-runtime
+
+set -a
+. /home/pepper/apps/open-webui/.env
+if [ -f /home/pepper/apps/open-webui/deploy/livekit/livekit.env ]; then
+  . /home/pepper/apps/open-webui/deploy/livekit/livekit.env
+fi
+set +a
+
+export LIVEKIT_URL="ws://127.0.0.1:7880"
+
+exec /usr/bin/s6-setuidgid pepper \
+  /home/pepper/apps/open-webui/.venv/bin/python /home/pepper/apps/open-webui/deploy/livekit/agent.py start

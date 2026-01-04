@@ -8,6 +8,16 @@ node_modules
 .env
 .env.*
 !.env.example
+
+# Pepper deploy/runtime (server-local)
+deploy/.venv/
+deploy/vendor/
+deploy/open_webui_wheel_pin.json
+deploy/livekit/livekit.env
+deploy/livekit/livekit.yaml
+deploy/__pycache__/
+deploy/livekit/__pycache__/
+
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 # Byte-compiled / optimized / DLL files

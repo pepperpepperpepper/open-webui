@@ -1,0 +1,18 @@
+# Generated config template for a single-node self-hosted LiveKit server.
+#
+# The setup script `deploy/livekit/setup_self_hosted.py` writes `deploy/livekit/livekit.yaml`
+# by replacing the placeholders below.
+#
+# Docs: https://docs.livekit.io
+
+port: 7880
+
+rtc:
+  # This box has a public IP; let LiveKit detect and advertise it for ICE.
+  use_external_ip: true
+  # Keep the UDP range narrow; widen if you expect lots of concurrent sessions.
+  port_range_start: 50000
+  port_range_end: 50100
+
+keys:
+  __LIVEKIT_API_KEY__: "__LIVEKIT_API_SECRET__"
