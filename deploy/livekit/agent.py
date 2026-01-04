@@ -5,6 +5,7 @@ import time
 from typing import Any
 
 from livekit import agents
+from livekit import rtc
 from livekit.agents.voice import events as voice_events
 from livekit.agents import Agent, AgentServer, AgentSession
 from livekit.agents.voice import room_io
@@ -32,6 +33,8 @@ DEBUG_DATA_ENABLED = os.getenv("LIVEKIT_DEBUG_DATA_ENABLED", "1").strip().lower(
     "no",
     "off",
 )
+CONTROL_DATA_TOPIC = os.getenv("LIVEKIT_CONTROL_DATA_TOPIC", "owui.voice.control").strip()
+MAX_CONTEXT_CHARS = int(os.getenv("LIVEKIT_MAX_CONTEXT_CHARS", "50000"))
 
 
 def _turn_detection(mode: str) -> Any:
@@ -193,6 +196,7 @@ async def entrypoint(ctx: agents.JobContext):
         tts=cartesia.TTS(**tts_kwargs),
         **session_kwargs,
     )
+    voice_agent = VoiceAgent()
 
     async def publish_debug_event(payload: dict[str, object], *, reliable: bool = True) -> None:
         if not DEBUG_DATA_ENABLED or not DEBUG_DATA_TOPIC:
@@ -216,6 +220,152 @@ async def entrypoint(ctx: agents.JobContext):
 
     def schedule_publish(payload: dict[str, object]) -> None:
         asyncio.create_task(publish_debug_event(payload), name="publish_debug_event")
+
+    async def apply_context(text: str, *, mode: str) -> None:
+        text = text.strip()
+        if MAX_CONTEXT_CHARS > 0 and len(text) > MAX_CONTEXT_CHARS:
+            schedule_publish(
+                {
+                    "type": "owui.voice.event",
+                    "event": "context_error",
+                    "data": {
+                        "message": "Context too large",
+                        "max_chars": MAX_CONTEXT_CHARS,
+                        "chars": len(text),
+                    },
+                }
+            )
+            return
+
+        def is_context_item(item: object) -> bool:
+            try:
+                if getattr(item, "type", None) != "message":
+                    return False
+                extra = getattr(item, "extra", None)
+                return isinstance(extra, dict) and extra.get("owui_livekit_context") is True
+            except Exception:
+                return False
+
+        if mode not in ("replace", "append"):
+            mode = "replace"
+
+        # Remove existing context items first when replacing.
+        if mode == "replace":
+            try:
+                items = voice_agent._chat_ctx.items  # type: ignore[attr-defined]
+                voice_agent._chat_ctx.items[:] = [i for i in items if not is_context_item(i)]  # type: ignore[attr-defined]
+            except Exception:
+                logger.exception("failed to clear existing context")
+
+        if not text:
+            schedule_publish(
+                {
+                    "type": "owui.voice.event",
+                    "event": "context_cleared",
+                    "data": {"mode": mode},
+                }
+            )
+            return
+
+        wrapped = f"Reference context (provided by user):\n\n{text}"
+        try:
+            msg = voice_agent._chat_ctx.add_message(  # type: ignore[attr-defined]
+                role="system",
+                content=wrapped,
+                extra={"owui_livekit_context": True},
+            )
+        except Exception:
+            logger.exception("failed to add context message to chat_ctx")
+            schedule_publish(
+                {
+                    "type": "owui.voice.event",
+                    "event": "context_error",
+                    "data": {"message": "Failed to add context"},
+                }
+            )
+            return
+
+        schedule_publish(
+            {
+                "type": "owui.voice.event",
+                "event": "context_set",
+                "data": {
+                    "mode": mode,
+                    "chars": len(text),
+                    "id": getattr(msg, "id", None),
+                },
+            }
+        )
+
+    async def clear_context() -> None:
+        def is_context_item(item: object) -> bool:
+            try:
+                if getattr(item, "type", None) != "message":
+                    return False
+                extra = getattr(item, "extra", None)
+                return isinstance(extra, dict) and extra.get("owui_livekit_context") is True
+            except Exception:
+                return False
+
+        try:
+            items = voice_agent._chat_ctx.items  # type: ignore[attr-defined]
+            voice_agent._chat_ctx.items[:] = [i for i in items if not is_context_item(i)]  # type: ignore[attr-defined]
+        except Exception:
+            logger.exception("failed to clear context items")
+        schedule_publish({"type": "owui.voice.event", "event": "context_cleared", "data": {}})
+
+    def on_data_received(packet: rtc.DataPacket) -> None:
+        if not CONTROL_DATA_TOPIC:
+            return
+        if packet.topic != CONTROL_DATA_TOPIC:
+            return
+
+        sender = packet.participant
+        sender_identity = str(getattr(sender, "identity", "") or "")
+        if not sender_identity.startswith("owui:"):
+            logger.warning(
+                "Ignoring control packet from non-owui identity",
+                extra={"identity": sender_identity},
+            )
+            return
+
+        try:
+            raw = (packet.data or b"").decode("utf-8", errors="replace").strip()
+        except Exception:
+            raw = ""
+        if not raw:
+            return
+
+        try:
+            payload = json.loads(raw)
+        except Exception:
+            schedule_publish(
+                {
+                    "type": "owui.voice.event",
+                    "event": "context_error",
+                    "data": {"message": "Invalid JSON control payload"},
+                }
+            )
+            return
+
+        if not isinstance(payload, dict) or payload.get("type") != "owui.voice.control":
+            return
+
+        op = str(payload.get("op") or "").strip().lower()
+        if op == "context_set":
+            text = str(payload.get("text") or "")
+            mode = str(payload.get("mode") or "replace").strip().lower()
+            asyncio.create_task(apply_context(text, mode=mode), name="context_set")
+        elif op == "context_clear":
+            asyncio.create_task(clear_context(), name="context_clear")
+        else:
+            schedule_publish(
+                {
+                    "type": "owui.voice.event",
+                    "event": "context_error",
+                    "data": {"message": f"Unknown control op: {op or '(empty)'}"},
+                }
+            )
 
     # Stream high-level agent/session signals to the browser demo via LiveKit data packets.
     def on_agent_state_changed(ev: voice_events.AgentStateChangedEvent) -> None:
@@ -443,9 +593,10 @@ async def entrypoint(ctx: agents.JobContext):
 
     await session.start(
         room=ctx.room,
-        agent=VoiceAgent(),
+        agent=voice_agent,
         room_input_options=room_io.RoomInputOptions(close_on_disconnect=False),
     )
+    ctx.room.on("data_received", on_data_received)
     if STARTUP_MESSAGE:
         try:
             await session.say(STARTUP_MESSAGE, add_to_chat_ctx=False)

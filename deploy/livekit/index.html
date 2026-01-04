@@ -40,6 +40,15 @@
         padding: 10px 12px;
         min-width: 280px;
       }
+      textarea {
+        background: #0b1220;
+        color: #e5e7eb;
+        border: 1px solid #1f2937;
+        border-radius: 8px;
+        padding: 10px 12px;
+        width: 100%;
+        resize: vertical;
+      }
       select {
         background: #0b1220;
         color: #e5e7eb;
@@ -207,6 +216,29 @@
         <p class="hint">
           If you’re not logged into Open WebUI in this browser, open the main app first
           so <code>localStorage.token</code> exists.
+        </p>
+      </div>
+
+      <div style="height: 12px"></div>
+      <div class="card">
+        <h2 style="margin: 0 0 8px 0">Context</h2>
+        <p class="hint" style="margin: 0 0 10px 0">
+          Paste reference text here and send it to the voice agent. It will be added as background context (not spoken).
+        </p>
+        <label style="display: block">
+          <textarea
+            id="context_text"
+            rows="6"
+            placeholder="Paste reference text (policies, notes, names, etc.)"
+          ></textarea>
+        </label>
+        <div style="height: 10px"></div>
+        <div class="row">
+          <button id="send_context" class="secondary" disabled>Send Context</button>
+          <button id="clear_context" class="secondary" disabled>Clear Context</button>
+        </div>
+        <p class="hint" style="margin: 10px 0 0 0">
+          This context is stored locally in your browser (<code>localStorage</code>) per room.
         </p>
       </div>
 
@@ -379,8 +411,13 @@
       const ttsVoiceInput = document.getElementById("tts_voice");
       const keepAwakeInput = document.getElementById("keep_awake");
 
+      const contextTextInput = document.getElementById("context_text");
+      const sendContextBtn = document.getElementById("send_context");
+      const clearContextBtn = document.getElementById("clear_context");
+
       const SETTINGS_KEY = "owui_livekit_voice_settings";
       const TRANSCRIPT_KEY_PREFIX = "owui_livekit_voice_transcript:";
+      const CONTEXT_KEY_PREFIX = "owui_livekit_voice_context:";
       const MAX_TRANSCRIPT_ITEMS = 500;
 
       const MAX_LOG_LINES = 2000;
@@ -483,6 +520,33 @@
 
       function transcriptStorageKey(roomName) {
         return `${TRANSCRIPT_KEY_PREFIX}${roomName}`;
+      }
+
+      function contextStorageKey(roomName) {
+        return `${CONTEXT_KEY_PREFIX}${roomName}`;
+      }
+
+      function loadContext(roomName) {
+        if (!contextTextInput) return;
+        if (!roomName) {
+          contextTextInput.value = "";
+          return;
+        }
+        try {
+          contextTextInput.value = localStorage.getItem(contextStorageKey(roomName)) || "";
+        } catch {
+          contextTextInput.value = "";
+        }
+      }
+
+      function persistContext(roomName) {
+        if (!contextTextInput || !roomName) return;
+        try {
+          const key = contextStorageKey(roomName);
+          const val = contextTextInput.value || "";
+          if (val) localStorage.setItem(key, val);
+          else localStorage.removeItem(key);
+        } catch {}
       }
 
       function formatTranscriptItem(item) {
@@ -721,6 +785,19 @@
           return;
         }
 
+        if (ev === "context_set" && data) {
+          info("Context set", data);
+          return;
+        }
+        if (ev === "context_cleared") {
+          info("Context cleared", data);
+          return;
+        }
+        if (ev === "context_error" && data) {
+          error("Context error", data);
+          return;
+        }
+
         debug("Agent event", { ev, data, meta });
       }
 
@@ -783,6 +860,7 @@
           DEFAULT_ROOM && DEFAULT_ROOM.startsWith("owui-voice-") ? DEFAULT_ROOM : randomRoom();
       }
       loadTranscript(roomInput.value.trim());
+      loadContext(roomInput.value.trim());
 
       let lkRoom = null;
       let wakeLockSentinel = null;
@@ -987,6 +1065,62 @@
         return payload;
       }
 
+      async function publishControlMessage(payload) {
+        if (!lkRoom) throw new Error("Not connected");
+        const lp = lkRoom.localParticipant;
+        if (!lp || typeof lp.publishData !== "function") throw new Error("publishData unavailable");
+
+        const message = { type: "owui.voice.control", ...payload };
+        const encoded = new TextEncoder().encode(JSON.stringify(message));
+        const topic = "owui.voice.control";
+
+        // livekit-client has had multiple publishData signatures over time; try a few.
+        try {
+          const r = lp.publishData(encoded, { reliable: true, topic });
+          if (r && typeof r.then === "function") await r;
+          return;
+        } catch {}
+
+        try {
+          const kind =
+            LivekitClient?.DataPacket_Kind?.RELIABLE ??
+            LivekitClient?.DataPacketKind?.RELIABLE;
+          const r = lp.publishData(encoded, kind, topic);
+          if (r && typeof r.then === "function") await r;
+          return;
+        } catch {}
+
+        // Very old signature: (data, reliable, topic)
+        const r = lp.publishData(encoded, true, topic);
+        if (r && typeof r.then === "function") await r;
+      }
+
+      async function sendContext() {
+        if (!lkRoom) throw new Error("Not connected");
+        const roomName = lkRoom.name || roomInput.value.trim();
+        if (roomName) persistContext(roomName);
+
+        const text = (contextTextInput?.value || "").trim();
+        if (!text) {
+          await publishControlMessage({ op: "context_clear" });
+          info("Context cleared (empty)");
+          return;
+        }
+
+        info("Sending context…", { chars: text.length });
+        await publishControlMessage({ op: "context_set", mode: "replace", text });
+      }
+
+      async function clearContext() {
+        const roomName = lkRoom?.name || roomInput.value.trim();
+        if (contextTextInput) contextTextInput.value = "";
+        if (roomName) persistContext(roomName);
+        if (lkRoom) {
+          await publishControlMessage({ op: "context_clear" });
+        }
+        info("Context cleared");
+      }
+
       function attachTrack(track, pub, participant) {
         // Create a new <audio> for each remote audio track.
         const el = track.attach();
@@ -1142,6 +1276,44 @@
         connectBtn.disabled = connected;
         dumpStateBtn.disabled = !connected;
         applyBtn.disabled = !connected;
+        if (sendContextBtn) sendContextBtn.disabled = !connected;
+        if (clearContextBtn) clearContextBtn.disabled = !connected;
+      }
+
+      if (contextTextInput) {
+        contextTextInput.addEventListener("change", () => {
+          try {
+            persistContext(roomInput.value.trim());
+          } catch {}
+        });
+      }
+      if (sendContextBtn) {
+        sendContextBtn.addEventListener("click", async () => {
+          if (!lkRoom) {
+            warn("Send context requested but not connected");
+            return;
+          }
+          sendContextBtn.disabled = true;
+          try {
+            await sendContext();
+          } catch (e) {
+            error("Send context failed", toPlainError(e) ?? e);
+          } finally {
+            sendContextBtn.disabled = !lkRoom;
+          }
+        });
+      }
+      if (clearContextBtn) {
+        clearContextBtn.addEventListener("click", async () => {
+          clearContextBtn.disabled = true;
+          try {
+            await clearContext();
+          } catch (e) {
+            error("Clear context failed", toPlainError(e) ?? e);
+          } finally {
+            clearContextBtn.disabled = !lkRoom;
+          }
+        });
       }
 
       connectBtn.addEventListener("click", async () => {
@@ -1173,6 +1345,7 @@
             localStorage.setItem(ROOM_KEY, roomInput.value.trim());
           } catch {}
           loadTranscript(roomInput.value.trim());
+          loadContext(roomInput.value.trim());
           info("Token minted", { ms: Math.round(performance.now() - t0), url, room: roomInput.value.trim() });
 
           info(`Connecting to LiveKit @ ${url}...`);
@@ -1314,6 +1487,7 @@
           if (val) localStorage.setItem(ROOM_KEY, val);
         } catch {}
         loadTranscript(roomInput.value.trim());
+        loadContext(roomInput.value.trim());
       });
 
       // Wake locks get released when the page goes into the background; re-acquire on return.
