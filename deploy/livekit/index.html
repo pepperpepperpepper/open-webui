@@ -232,15 +232,15 @@
             placeholder="Paste reference text (policies, notes, names, etc.)"
           ></textarea>
         </label>
-        <div style="height: 10px"></div>
-        <div class="row">
-          <button id="send_context" class="secondary" disabled>Send Context</button>
-          <button id="clear_context" class="secondary" disabled>Clear Context</button>
-        </div>
-        <p class="hint" style="margin: 10px 0 0 0">
-          This context is stored locally in your browser (<code>localStorage</code>) per room.
-        </p>
-      </div>
+	        <div style="height: 10px"></div>
+	        <div class="row">
+	          <button id="send_context" class="secondary">Send Context</button>
+	          <button id="clear_context" class="secondary">Clear Context</button>
+	        </div>
+	        <p class="hint" style="margin: 10px 0 0 0">
+	          This context is stored locally in your browser (<code>localStorage</code>) per room.
+	        </p>
+	      </div>
 
       <div style="height: 12px"></div>
       <details>
@@ -425,13 +425,16 @@
       let lastAgentState = null;
       let lastUserState = null;
 
-      let transcriptItems = [];
-      let transcriptRoom = null;
+	      let transcriptItems = [];
+	      let transcriptRoom = null;
 
-      function toPlainError(e) {
-        if (!e) return null;
-        if (e instanceof Error) {
-          return { name: e.name, message: e.message, stack: e.stack };
+	      const CONTROL_DATA_TOPIC = "owui.voice.control";
+	      const MAX_CONTROL_TEXT_BYTES = 12000; // conservative; LiveKit payload limits vary by SDK/version
+
+	      function toPlainError(e) {
+	        if (!e) return null;
+	        if (e instanceof Error) {
+	          return { name: e.name, message: e.message, stack: e.stack };
         }
         if (typeof e === "object" && typeof e.message === "string") {
           return { name: e.name || "Error", message: e.message, stack: e.stack };
@@ -1065,61 +1068,133 @@
         return payload;
       }
 
-      async function publishControlMessage(payload) {
-        if (!lkRoom) throw new Error("Not connected");
-        const lp = lkRoom.localParticipant;
-        if (!lp || typeof lp.publishData !== "function") throw new Error("publishData unavailable");
+	      async function publishControlMessage(payload) {
+	        if (!lkRoom) throw new Error("Not connected");
+	        const lp = lkRoom.localParticipant;
+	        if (!lp || typeof lp.publishData !== "function") throw new Error("publishData unavailable");
 
-        const message = { type: "owui.voice.control", ...payload };
-        const encoded = new TextEncoder().encode(JSON.stringify(message));
-        const topic = "owui.voice.control";
+	        const requestId =
+	          payload?.request_id ||
+	          (crypto?.randomUUID ? crypto.randomUUID() : `req_${Date.now()}_${Math.random().toString(16).slice(2)}`);
+	        const message = { type: "owui.voice.control", request_id: requestId, ...payload };
+	        const encoded = new TextEncoder().encode(JSON.stringify(message));
+	        const topic = CONTROL_DATA_TOPIC;
 
-        // livekit-client has had multiple publishData signatures over time; try a few.
-        try {
-          const r = lp.publishData(encoded, { reliable: true, topic });
-          if (r && typeof r.then === "function") await r;
-          return;
-        } catch {}
+	        info("Publishing control message", {
+	          op: payload?.op,
+	          bytes: encoded.byteLength,
+	          topic,
+	          request_id: requestId,
+	        });
 
-        try {
-          const kind =
-            LivekitClient?.DataPacket_Kind?.RELIABLE ??
-            LivekitClient?.DataPacketKind?.RELIABLE;
-          const r = lp.publishData(encoded, kind, topic);
-          if (r && typeof r.then === "function") await r;
-          return;
-        } catch {}
+	        const fnLen = Number(lp.publishData.length || 0);
+	        debug("publishData detected", { fnLen });
+	        try {
+	          // Current livekit-client signature: publishData(data, { reliable, topic, destinationIdentities })
+	          if (fnLen <= 2) {
+	            const r = lp.publishData(encoded, { reliable: true, topic });
+	            if (r && typeof r.then === "function") await r;
+	          } else {
+	            // Older signature: publishData(data, kind, topic)
+	            const kind =
+	              LivekitClient?.DataPacket_Kind?.RELIABLE ?? LivekitClient?.DataPacketKind?.RELIABLE;
+	            const r = kind != null ? lp.publishData(encoded, kind, topic) : lp.publishData(encoded, true, topic);
+	            if (r && typeof r.then === "function") await r;
+	          }
+	        } catch (e) {
+	          throw new Error(`publishData failed: ${toPlainError(e)?.message ?? e}`);
+	        }
 
-        // Very old signature: (data, reliable, topic)
-        const r = lp.publishData(encoded, true, topic);
-        if (r && typeof r.then === "function") await r;
-      }
+	        info("Control message sent", { request_id: requestId });
+	        return requestId;
+	      }
 
-      async function sendContext() {
-        if (!lkRoom) throw new Error("Not connected");
-        const roomName = lkRoom.name || roomInput.value.trim();
-        if (roomName) persistContext(roomName);
+	      async function sendContext() {
+	        if (!lkRoom) {
+	          persistContext(roomInput.value.trim());
+	          warn("Not connected; connect first to send context");
+	          return;
+	        }
+	        const roomName = lkRoom.name || roomInput.value.trim();
+	        if (roomName) persistContext(roomName);
 
-        const text = (contextTextInput?.value || "").trim();
-        if (!text) {
-          await publishControlMessage({ op: "context_clear" });
-          info("Context cleared (empty)");
-          return;
-        }
+	        const text = (contextTextInput?.value || "").trim();
+	        if (!text) {
+	          await publishControlMessage({ op: "context_clear" });
+	          info("Context cleared (empty)");
+	          return;
+	        }
 
-        info("Sending context…", { chars: text.length });
-        await publishControlMessage({ op: "context_set", mode: "replace", text });
-      }
+	        const encoder = new TextEncoder();
+	        const bytes = encoder.encode(text);
+	        const decoder = new TextDecoder();
 
-      async function clearContext() {
-        const roomName = lkRoom?.name || roomInput.value.trim();
-        if (contextTextInput) contextTextInput.value = "";
-        if (roomName) persistContext(roomName);
-        if (lkRoom) {
-          await publishControlMessage({ op: "context_clear" });
-        }
-        info("Context cleared");
-      }
+	        if (bytes.byteLength <= MAX_CONTROL_TEXT_BYTES) {
+	          info("Sending context…", { chars: text.length, bytes: bytes.byteLength });
+	          await publishControlMessage({ op: "context_set", mode: "replace", text });
+	          return;
+	        }
+
+	        info("Context is large; sending in chunks…", { chars: text.length, bytes: bytes.byteLength });
+
+		        const totalApprox = Math.ceil(bytes.byteLength / MAX_CONTROL_TEXT_BYTES);
+		        let offset = 0;
+		        let idx = 0;
+		        while (offset < bytes.byteLength) {
+		          const maxEnd = Math.min(offset + MAX_CONTROL_TEXT_BYTES, bytes.byteLength);
+		          let end = maxEnd;
+
+		          // Avoid splitting UTF-8 in the middle of a multi-byte sequence.
+		          if (end < bytes.byteLength) {
+		            let i = end - 1;
+		            while (i >= offset && (bytes[i] & 0xc0) === 0x80) i--;
+		            if (i >= offset) {
+		              const b = bytes[i];
+		              const seqLen =
+		                b < 0x80
+		                  ? 1
+		                  : b >= 0xf0 && b <= 0xf4
+		                    ? 4
+		                    : b >= 0xe0 && b <= 0xef
+		                      ? 3
+		                      : b >= 0xc2 && b <= 0xdf
+		                        ? 2
+		                        : 1;
+		              const available = end - i;
+		              if (available < seqLen) end = i;
+		            }
+		          }
+		          if (end <= offset) end = maxEnd;
+
+		          const chunkText = decoder.decode(bytes.slice(offset, end));
+		          if (chunkText.trim()) {
+		            const mode = idx === 0 ? "replace" : "append";
+		            await publishControlMessage({
+		              op: "context_set",
+		              mode,
+	              text: chunkText,
+	              chunk_index: idx + 1,
+	              chunk_total: totalApprox,
+	            });
+	          }
+
+	          idx += 1;
+	          offset = end;
+	        }
+	        info("Context send complete", { chunks: idx });
+	      }
+
+	      async function clearContext() {
+	        const roomName = lkRoom?.name || roomInput.value.trim();
+	        if (contextTextInput) contextTextInput.value = "";
+	        if (roomName) persistContext(roomName);
+	        if (lkRoom) {
+	          await publishControlMessage({ op: "context_clear" });
+	        } else {
+	          warn("Not connected; cleared local context only");
+	        }
+	        info("Context cleared");
+	      }
 
       function attachTrack(track, pub, participant) {
         // Create a new <audio> for each remote audio track.
@@ -1271,14 +1346,12 @@
         info("State dump", state);
       }
 
-      function setConnectedUI(connected) {
-        disconnectBtn.disabled = !connected;
-        connectBtn.disabled = connected;
-        dumpStateBtn.disabled = !connected;
-        applyBtn.disabled = !connected;
-        if (sendContextBtn) sendContextBtn.disabled = !connected;
-        if (clearContextBtn) clearContextBtn.disabled = !connected;
-      }
+	      function setConnectedUI(connected) {
+	        disconnectBtn.disabled = !connected;
+	        connectBtn.disabled = connected;
+	        dumpStateBtn.disabled = !connected;
+	        applyBtn.disabled = !connected;
+	      }
 
       if (contextTextInput) {
         contextTextInput.addEventListener("change", () => {
@@ -1287,34 +1360,39 @@
           } catch {}
         });
       }
-      if (sendContextBtn) {
-        sendContextBtn.addEventListener("click", async () => {
-          if (!lkRoom) {
-            warn("Send context requested but not connected");
-            return;
-          }
-          sendContextBtn.disabled = true;
-          try {
-            await sendContext();
-          } catch (e) {
-            error("Send context failed", toPlainError(e) ?? e);
-          } finally {
-            sendContextBtn.disabled = !lkRoom;
-          }
-        });
-      }
-      if (clearContextBtn) {
-        clearContextBtn.addEventListener("click", async () => {
-          clearContextBtn.disabled = true;
-          try {
-            await clearContext();
-          } catch (e) {
-            error("Clear context failed", toPlainError(e) ?? e);
-          } finally {
-            clearContextBtn.disabled = !lkRoom;
-          }
-        });
-      }
+	      if (sendContextBtn) {
+	        sendContextBtn.addEventListener("click", async () => {
+	          info("Send Context clicked");
+	          if (!lkRoom) {
+	            // allow local save even if disconnected
+	            try {
+	              persistContext(roomInput.value.trim());
+	            } catch {}
+	            warn("Send context requested but not connected");
+	            return;
+	          }
+	          sendContextBtn.disabled = true;
+	          try {
+	            await sendContext();
+	          } catch (e) {
+	            error("Send context failed", toPlainError(e) ?? e);
+	          } finally {
+	            sendContextBtn.disabled = false;
+	          }
+	        });
+	      }
+	      if (clearContextBtn) {
+	        clearContextBtn.addEventListener("click", async () => {
+	          clearContextBtn.disabled = true;
+	          try {
+	            await clearContext();
+	          } catch (e) {
+	            error("Clear context failed", toPlainError(e) ?? e);
+	          } finally {
+	            clearContextBtn.disabled = false;
+	          }
+	        });
+	      }
 
       connectBtn.addEventListener("click", async () => {
         connectBtn.disabled = true;

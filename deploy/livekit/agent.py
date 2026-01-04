@@ -221,7 +221,7 @@ async def entrypoint(ctx: agents.JobContext):
     def schedule_publish(payload: dict[str, object]) -> None:
         asyncio.create_task(publish_debug_event(payload), name="publish_debug_event")
 
-    async def apply_context(text: str, *, mode: str) -> None:
+    async def apply_context(text: str, *, mode: str, request_id: str | None = None) -> None:
         text = text.strip()
         if MAX_CONTEXT_CHARS > 0 and len(text) > MAX_CONTEXT_CHARS:
             schedule_publish(
@@ -232,6 +232,7 @@ async def entrypoint(ctx: agents.JobContext):
                         "message": "Context too large",
                         "max_chars": MAX_CONTEXT_CHARS,
                         "chars": len(text),
+                        "request_id": request_id,
                     },
                 }
             )
@@ -249,6 +250,19 @@ async def entrypoint(ctx: agents.JobContext):
         if mode not in ("replace", "append"):
             mode = "replace"
 
+        def find_last_context_item() -> object | None:
+            try:
+                items = voice_agent._chat_ctx.items  # type: ignore[attr-defined]
+            except Exception:
+                return None
+            try:
+                for item in reversed(list(items)):
+                    if is_context_item(item):
+                        return item
+            except Exception:
+                return None
+            return None
+
         # Remove existing context items first when replacing.
         if mode == "replace":
             try:
@@ -262,28 +276,42 @@ async def entrypoint(ctx: agents.JobContext):
                 {
                     "type": "owui.voice.event",
                     "event": "context_cleared",
-                    "data": {"mode": mode},
+                    "data": {"mode": mode, "request_id": request_id},
                 }
             )
             return
 
-        wrapped = f"Reference context (provided by user):\n\n{text}"
-        try:
-            msg = voice_agent._chat_ctx.add_message(  # type: ignore[attr-defined]
-                role="system",
-                content=wrapped,
-                extra={"owui_livekit_context": True},
-            )
-        except Exception:
-            logger.exception("failed to add context message to chat_ctx")
-            schedule_publish(
-                {
-                    "type": "owui.voice.event",
-                    "event": "context_error",
-                    "data": {"message": "Failed to add context"},
-                }
-            )
-            return
+        appended = False
+        msg = None
+        if mode == "append":
+            existing = find_last_context_item()
+            if existing is not None:
+                try:
+                    existing_content = str(getattr(existing, "content", "") or "")
+                    setattr(existing, "content", f"{existing_content}\n{text}".strip())
+                    msg = existing
+                    appended = True
+                except Exception:
+                    logger.exception("failed to append to existing context message")
+
+        if msg is None:
+            wrapped = f"Reference context (provided by user):\n\n{text}"
+            try:
+                msg = voice_agent._chat_ctx.add_message(  # type: ignore[attr-defined]
+                    role="system",
+                    content=wrapped,
+                    extra={"owui_livekit_context": True},
+                )
+            except Exception:
+                logger.exception("failed to add context message to chat_ctx")
+                schedule_publish(
+                    {
+                        "type": "owui.voice.event",
+                        "event": "context_error",
+                        "data": {"message": "Failed to add context", "request_id": request_id},
+                    }
+                )
+                return
 
         schedule_publish(
             {
@@ -293,11 +321,13 @@ async def entrypoint(ctx: agents.JobContext):
                     "mode": mode,
                     "chars": len(text),
                     "id": getattr(msg, "id", None),
+                    "appended": appended,
+                    "request_id": request_id,
                 },
             }
         )
 
-    async def clear_context() -> None:
+    async def clear_context(*, request_id: str | None = None) -> None:
         def is_context_item(item: object) -> bool:
             try:
                 if getattr(item, "type", None) != "message":
@@ -312,28 +342,42 @@ async def entrypoint(ctx: agents.JobContext):
             voice_agent._chat_ctx.items[:] = [i for i in items if not is_context_item(i)]  # type: ignore[attr-defined]
         except Exception:
             logger.exception("failed to clear context items")
-        schedule_publish({"type": "owui.voice.event", "event": "context_cleared", "data": {}})
+        schedule_publish(
+            {
+                "type": "owui.voice.event",
+                "event": "context_cleared",
+                "data": {"request_id": request_id},
+            }
+        )
 
     def on_data_received(packet: rtc.DataPacket) -> None:
         if not CONTROL_DATA_TOPIC:
             return
-        if packet.topic != CONTROL_DATA_TOPIC:
-            return
 
         sender = packet.participant
         sender_identity = str(getattr(sender, "identity", "") or "")
-        if not sender_identity.startswith("owui:"):
-            logger.warning(
-                "Ignoring control packet from non-owui identity",
-                extra={"identity": sender_identity},
-            )
-            return
 
         try:
             raw = (packet.data or b"").decode("utf-8", errors="replace").strip()
         except Exception:
             raw = ""
         if not raw:
+            return
+
+        # If this *looks* like a control payload but was published on the wrong topic, log it.
+        if packet.topic != CONTROL_DATA_TOPIC:
+            if "owui.voice.control" in raw:
+                logger.warning(
+                    "Control payload received on wrong topic",
+                    extra={"topic": packet.topic, "identity": sender_identity},
+                )
+            return
+
+        if sender_identity and not sender_identity.startswith("owui:"):
+            logger.warning(
+                "Ignoring control packet from non-owui identity",
+                extra={"identity": sender_identity, "topic": packet.topic},
+            )
             return
 
         try:
@@ -352,18 +396,33 @@ async def entrypoint(ctx: agents.JobContext):
             return
 
         op = str(payload.get("op") or "").strip().lower()
+        request_id = str(payload.get("request_id") or "").strip() or None
         if op == "context_set":
             text = str(payload.get("text") or "")
             mode = str(payload.get("mode") or "replace").strip().lower()
-            asyncio.create_task(apply_context(text, mode=mode), name="context_set")
+            logger.info(
+                "control_context_set",
+                extra={
+                    "identity": sender_identity,
+                    "topic": packet.topic,
+                    "request_id": request_id,
+                    "chars": len(text),
+                    "mode": mode,
+                },
+            )
+            asyncio.create_task(apply_context(text, mode=mode, request_id=request_id), name="context_set")
         elif op == "context_clear":
-            asyncio.create_task(clear_context(), name="context_clear")
+            logger.info(
+                "control_context_clear",
+                extra={"identity": sender_identity, "topic": packet.topic, "request_id": request_id},
+            )
+            asyncio.create_task(clear_context(request_id=request_id), name="context_clear")
         else:
             schedule_publish(
                 {
                     "type": "owui.voice.event",
                     "event": "context_error",
-                    "data": {"message": f"Unknown control op: {op or '(empty)'}"},
+                    "data": {"message": f"Unknown control op: {op or '(empty)'}", "request_id": request_id},
                 }
             )
 
