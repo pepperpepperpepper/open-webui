@@ -591,12 +591,12 @@ async def entrypoint(ctx: agents.JobContext):
         }
     )
 
+    ctx.room.on("data_received", on_data_received)
     await session.start(
         room=ctx.room,
         agent=voice_agent,
         room_input_options=room_io.RoomInputOptions(close_on_disconnect=False),
     )
-    ctx.room.on("data_received", on_data_received)
     if STARTUP_MESSAGE:
         try:
             await session.say(STARTUP_MESSAGE, add_to_chat_ctx=False)
