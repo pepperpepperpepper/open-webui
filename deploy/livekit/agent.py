@@ -646,6 +646,10 @@ async def entrypoint(ctx: agents.JobContext):
                 "turn_detection": turn_detection_mode,
                 "session_kwargs": session_kwargs_log,
                 "tts_voice": resolved_tts_voice or None,
+                "llm_model": LLM_MODEL,
+                "stt_model": STT_MODEL,
+                "stt_language": STT_LANGUAGE,
+                "tts_model": TTS_MODEL,
             },
         }
     )
