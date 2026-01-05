@@ -197,6 +197,7 @@ async def entrypoint(ctx: agents.JobContext):
         **session_kwargs,
     )
     voice_agent = VoiceAgent()
+    context_lock = asyncio.Lock()
 
     async def publish_debug_event(payload: dict[str, object], *, reliable: bool = True) -> None:
         if not DEBUG_DATA_ENABLED or not DEBUG_DATA_TOPIC:
@@ -222,133 +223,204 @@ async def entrypoint(ctx: agents.JobContext):
         asyncio.create_task(publish_debug_event(payload), name="publish_debug_event")
 
     async def apply_context(text: str, *, mode: str, request_id: str | None = None) -> None:
-        text = text.strip()
-        if MAX_CONTEXT_CHARS > 0 and len(text) > MAX_CONTEXT_CHARS:
-            schedule_publish(
-                {
-                    "type": "owui.voice.event",
-                    "event": "context_error",
-                    "data": {
-                        "message": "Context too large",
-                        "max_chars": MAX_CONTEXT_CHARS,
-                        "chars": len(text),
-                        "request_id": request_id,
-                    },
-                }
-            )
-            return
+        async with context_lock:
+            text = text.strip()
 
-        def is_context_item(item: object) -> bool:
-            try:
-                if getattr(item, "type", None) != "message":
-                    return False
-                extra = getattr(item, "extra", None)
-                return isinstance(extra, dict) and extra.get("owui_livekit_context") is True
-            except Exception:
-                return False
-
-        if mode not in ("replace", "append"):
-            mode = "replace"
-
-        def find_last_context_item() -> object | None:
-            try:
-                items = voice_agent._chat_ctx.items  # type: ignore[attr-defined]
-            except Exception:
-                return None
-            try:
-                for item in reversed(list(items)):
-                    if is_context_item(item):
-                        return item
-            except Exception:
-                return None
-            return None
-
-        # Remove existing context items first when replacing.
-        if mode == "replace":
-            try:
-                items = voice_agent._chat_ctx.items  # type: ignore[attr-defined]
-                voice_agent._chat_ctx.items[:] = [i for i in items if not is_context_item(i)]  # type: ignore[attr-defined]
-            except Exception:
-                logger.exception("failed to clear existing context")
-
-        if not text:
-            schedule_publish(
-                {
-                    "type": "owui.voice.event",
-                    "event": "context_cleared",
-                    "data": {"mode": mode, "request_id": request_id},
-                }
-            )
-            return
-
-        appended = False
-        msg = None
-        if mode == "append":
-            existing = find_last_context_item()
-            if existing is not None:
+            def is_context_item(item: object) -> bool:
                 try:
-                    existing_content = str(getattr(existing, "content", "") or "")
-                    setattr(existing, "content", f"{existing_content}\n{text}".strip())
-                    msg = existing
-                    appended = True
+                    if getattr(item, "type", None) != "message":
+                        return False
+                    extra = getattr(item, "extra", None)
+                    return isinstance(extra, dict) and extra.get("owui_livekit_context") is True
                 except Exception:
-                    logger.exception("failed to append to existing context message")
+                    return False
 
-        if msg is None:
-            wrapped = f"Reference context (provided by user):\n\n{text}"
+            def find_last_context_message(chat_ctx: object) -> object | None:
+                try:
+                    items = getattr(chat_ctx, "items", None) or []
+                except Exception:
+                    items = []
+                try:
+                    for item in reversed(list(items)):
+                        if is_context_item(item):
+                            return item
+                except Exception:
+                    return None
+                return None
+
+            def context_total_chars(chat_ctx: object) -> int:
+                total = 0
+                try:
+                    items = getattr(chat_ctx, "items", None) or []
+                except Exception:
+                    items = []
+                for item in items:
+                    if not is_context_item(item):
+                        continue
+                    try:
+                        content = getattr(item, "content", None)
+                    except Exception:
+                        content = None
+                    if isinstance(content, list):
+                        for part in content:
+                            if isinstance(part, str):
+                                total += len(part)
+                    elif isinstance(content, str):
+                        total += len(content)
+                return total
+
+            if mode not in ("replace", "append"):
+                mode = "replace"
+
+            # Work on a mutable copy, then update the agent properly.
             try:
-                msg = voice_agent._chat_ctx.add_message(  # type: ignore[attr-defined]
-                    role="system",
-                    content=wrapped,
-                    extra={"owui_livekit_context": True},
-                )
+                chat_ctx = voice_agent.chat_ctx.copy()
             except Exception:
-                logger.exception("failed to add context message to chat_ctx")
+                logger.exception("failed to copy agent chat_ctx")
                 schedule_publish(
                     {
                         "type": "owui.voice.event",
                         "event": "context_error",
-                        "data": {"message": "Failed to add context", "request_id": request_id},
+                        "data": {"message": "Failed to access chat context", "request_id": request_id},
                     }
                 )
                 return
 
-        schedule_publish(
-            {
-                "type": "owui.voice.event",
-                "event": "context_set",
-                "data": {
-                    "mode": mode,
-                    "chars": len(text),
-                    "id": getattr(msg, "id", None),
-                    "appended": appended,
-                    "request_id": request_id,
-                },
-            }
-        )
+            # Remove existing context items first when replacing.
+            if mode == "replace":
+                try:
+                    chat_ctx.items[:] = [i for i in chat_ctx.items if not is_context_item(i)]
+                except Exception:
+                    logger.exception("failed to clear existing context")
+
+            if not text:
+                try:
+                    await voice_agent.update_chat_ctx(chat_ctx)
+                except Exception:
+                    logger.exception("failed to update chat_ctx after context clear")
+                schedule_publish(
+                    {
+                        "type": "owui.voice.event",
+                        "event": "context_cleared",
+                        "data": {"mode": mode, "request_id": request_id},
+                    }
+                )
+                return
+
+            truncated = False
+            if MAX_CONTEXT_CHARS > 0:
+                current_chars = context_total_chars(chat_ctx)
+                remaining = MAX_CONTEXT_CHARS - current_chars
+                if remaining <= 0:
+                    schedule_publish(
+                        {
+                            "type": "owui.voice.event",
+                            "event": "context_error",
+                            "data": {
+                                "message": "Context is full (max chars reached)",
+                                "max_chars": MAX_CONTEXT_CHARS,
+                                "chars": current_chars,
+                                "request_id": request_id,
+                            },
+                        }
+                    )
+                    return
+                if len(text) > remaining:
+                    text = text[:remaining]
+                    truncated = True
+
+            appended = False
+            msg = None
+
+            if mode == "append":
+                existing = find_last_context_message(chat_ctx)
+                if existing is not None:
+                    try:
+                        content = getattr(existing, "content", None)
+                        if isinstance(content, list):
+                            content.append(text)
+                            msg = existing
+                            appended = True
+                        else:
+                            # Broken/legacy content shape; fall back to replacing with a fresh message.
+                            msg = None
+                    except Exception:
+                        logger.exception("failed to append to existing context message")
+
+            if msg is None:
+                wrapped = f"Reference context (provided by user):\n\n{text}"
+                try:
+                    msg = chat_ctx.add_message(
+                        role="system",
+                        content=wrapped,
+                        extra={"owui_livekit_context": True},
+                    )
+                except Exception:
+                    logger.exception("failed to add context message to chat_ctx")
+                    schedule_publish(
+                        {
+                            "type": "owui.voice.event",
+                            "event": "context_error",
+                            "data": {"message": "Failed to add context", "request_id": request_id},
+                        }
+                    )
+                    return
+
+            try:
+                await voice_agent.update_chat_ctx(chat_ctx)
+            except Exception:
+                logger.exception("failed to update agent chat_ctx after context set")
+                schedule_publish(
+                    {
+                        "type": "owui.voice.event",
+                        "event": "context_error",
+                        "data": {"message": "Failed to apply context to session", "request_id": request_id},
+                    }
+                )
+                return
+
+            schedule_publish(
+                {
+                    "type": "owui.voice.event",
+                    "event": "context_set",
+                    "data": {
+                        "mode": mode,
+                        "chars": len(text),
+                        "id": getattr(msg, "id", None),
+                        "appended": appended,
+                        "truncated": truncated,
+                        "max_chars": MAX_CONTEXT_CHARS,
+                        "total_chars": context_total_chars(chat_ctx),
+                        "request_id": request_id,
+                    },
+                }
+            )
 
     async def clear_context(*, request_id: str | None = None) -> None:
-        def is_context_item(item: object) -> bool:
-            try:
-                if getattr(item, "type", None) != "message":
+        async with context_lock:
+            def is_context_item(item: object) -> bool:
+                try:
+                    if getattr(item, "type", None) != "message":
+                        return False
+                    extra = getattr(item, "extra", None)
+                    return isinstance(extra, dict) and extra.get("owui_livekit_context") is True
+                except Exception:
                     return False
-                extra = getattr(item, "extra", None)
-                return isinstance(extra, dict) and extra.get("owui_livekit_context") is True
-            except Exception:
-                return False
 
-        try:
-            items = voice_agent._chat_ctx.items  # type: ignore[attr-defined]
-            voice_agent._chat_ctx.items[:] = [i for i in items if not is_context_item(i)]  # type: ignore[attr-defined]
-        except Exception:
-            logger.exception("failed to clear context items")
-        schedule_publish(
-            {
-                "type": "owui.voice.event",
-                "event": "context_cleared",
-                "data": {"request_id": request_id},
-            }
-        )
+            try:
+                chat_ctx = voice_agent.chat_ctx.copy()
+                chat_ctx.items[:] = [i for i in chat_ctx.items if not is_context_item(i)]
+                await voice_agent.update_chat_ctx(chat_ctx)
+            except Exception:
+                logger.exception("failed to clear context items")
+
+            schedule_publish(
+                {
+                    "type": "owui.voice.event",
+                    "event": "context_cleared",
+                    "data": {"request_id": request_id},
+                }
+            )
 
     def on_data_received(packet: rtc.DataPacket) -> None:
         if not CONTROL_DATA_TOPIC:
