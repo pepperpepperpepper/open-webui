@@ -139,7 +139,7 @@
   </head>
   <body>
     <div class="wrap">
-      <h1>LiveKit Voice (PoC) <span class="pill mono">v2026-01-02</span></h1>
+	      <h1>LiveKit Voice (PoC) <span class="pill mono">v2026-01-05</span></h1>
       <p class="hint">
         Uses your Open WebUI login token (<code>localStorage.token</code>) to mint a
         short-lived LiveKit access token via <code>/token</code>.
@@ -382,9 +382,10 @@
       <div id="audio"></div>
     </div>
 
-    <script src="https://cdn.jsdelivr.net/npm/livekit-client/dist/livekit-client.umd.min.js"></script>
-    <script>
-      const transcriptEl = document.getElementById("transcript");
+	    <script src="https://cdn.jsdelivr.net/npm/livekit-client/dist/livekit-client.umd.min.js"></script>
+	    <script>
+	      const PAGE_VERSION = "2026-01-05";
+	      const transcriptEl = document.getElementById("transcript");
       const transcriptHintEl = document.getElementById("transcript_hint");
       const copyTranscriptBtn = document.getElementById("copy_transcript");
       const clearTranscriptBtn = document.getElementById("clear_transcript");
@@ -952,11 +953,12 @@
 
       loadSettings();
 
-      info("Client ready", {
-        userAgent: navigator.userAgent,
-        wakeLock: "wakeLock" in navigator,
-        mediaDevices: !!navigator.mediaDevices,
-      });
+	      info("Client ready", {
+	        version: PAGE_VERSION,
+	        userAgent: navigator.userAgent,
+	        wakeLock: "wakeLock" in navigator,
+	        mediaDevices: !!navigator.mediaDevices,
+	      });
       info("Network status", { online: navigator.onLine });
 
       // Support pre-filling via URL params, e.g. /livekit/?voice=<cartesia_voice_id>
