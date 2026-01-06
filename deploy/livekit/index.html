@@ -139,7 +139,7 @@
   </head>
   <body>
     <div class="wrap">
-	      <h1>LiveKit Voice (PoC) <span class="pill mono">v2026-01-05</span></h1>
+	      <h1>LiveKit Voice (PoC) <span class="pill mono">v2026-01-06</span></h1>
       <p class="hint">
         Uses your Open WebUI login token (<code>localStorage.token</code>) to mint a
         short-lived LiveKit access token via <code>/token</code>.
@@ -384,7 +384,7 @@
 
 	    <script src="https://cdn.jsdelivr.net/npm/livekit-client/dist/livekit-client.umd.min.js"></script>
 	    <script>
-	      const PAGE_VERSION = "2026-01-05";
+	      const PAGE_VERSION = "2026-01-06";
 	      const transcriptEl = document.getElementById("transcript");
       const transcriptHintEl = document.getElementById("transcript_hint");
       const copyTranscriptBtn = document.getElementById("copy_transcript");
@@ -917,18 +917,18 @@
       }
 
       function loadSettings() {
-        const defaults = {
-          turn_detection: "ml",
-          allow_interruptions: true,
-          min_endpointing_delay: "2",
-          max_endpointing_delay: "5.0",
-          min_interruption_duration: "0.7",
-          min_interruption_words: "2",
-          tts_voice: "",
-          keep_awake: true,
-          verbose_logs: true,
-          autoscroll: true,
-        };
+	        const defaults = {
+	          turn_detection: "ml",
+	          allow_interruptions: true,
+	          min_endpointing_delay: "5",
+	          max_endpointing_delay: "5",
+	          min_interruption_duration: "1",
+	          min_interruption_words: "2",
+	          tts_voice: "7f6cad5b-fc48-4682-9f84-bc329065b096",
+	          keep_awake: true,
+	          verbose_logs: true,
+	          autoscroll: true,
+	        };
 
         let saved = null;
         try {
