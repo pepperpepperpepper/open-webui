@@ -139,33 +139,44 @@
   </head>
   <body>
     <div class="wrap">
-	      <h1>LiveKit Voice (PoC) <span class="pill mono">v2026-01-06</span></h1>
+	      <h1>LiveKit Voice (PoC) <span class="pill mono">v2026-01-07</span></h1>
       <p class="hint">
         Uses your Open WebUI login token (<code>localStorage.token</code>) to mint a
         short-lived LiveKit access token via <code>/token</code>.
       </p>
 
-      <div class="card">
-        <div class="row">
-          <label>
-            Room
-            <input id="room" placeholder="owui-voice-…" />
-          </label>
-          <button id="connect">Connect</button>
-          <button id="disconnect" class="secondary" disabled>Disconnect</button>
-          <button id="apply" class="secondary" disabled>Apply (restart agent)</button>
-        </div>
-        <p class="hint" style="margin: 10px 0 0 0">
-          Change settings any time; click <span class="mono">Apply</span> to update the agent without disconnecting.
-          (The agent reads room settings on start.)
-        </p>
+	      <div class="card">
+	        <div class="row">
+	          <label>
+	            Room
+	            <input id="room" placeholder="owui-voice-…" />
+	          </label>
+	          <button id="connect">Connect</button>
+	          <button id="disconnect" class="secondary" disabled>Disconnect</button>
+	          <button id="apply" class="secondary" disabled>Apply (restart agent)</button>
+	        </div>
+	        <p class="hint" style="margin: 10px 0 0 0">
+	          Change settings any time; click <span class="mono">Apply</span> to update the agent without disconnecting.
+	          (The agent reads room settings on start.)
+	        </p>
 
-        <div style="height: 12px"></div>
-        <div class="row">
-          <label>
-            Turn Detection
-            <select id="turn_detection">
-              <option value="ml">Turn Detector (ml)</option>
+	        <div style="height: 12px"></div>
+	        <div class="row">
+	          <label>
+	            LLM Model (Cerebras)
+	            <select id="llm_model">
+	              <option value="glm-4.6">GLM 4.6 (default)</option>
+	              <option value="glm-4.7">GLM 4.7</option>
+	            </select>
+	          </label>
+	        </div>
+
+	        <div style="height: 12px"></div>
+	        <div class="row">
+	          <label>
+	            Turn Detection
+	            <select id="turn_detection">
+	              <option value="ml">Turn Detector (ml)</option>
               <option value="stt">STT-only</option>
             </select>
           </label>
@@ -258,20 +269,28 @@
               <th style="width: 22%">Typical / safe range</th>
             </tr>
           </thead>
-          <tbody>
-            <tr>
-              <td><span class="pill">Room</span></td>
-              <td>
-                LiveKit room name. People in the same room hear the same agent.
-                Must start with <span class="mono">owui-voice-</span>.
-              </td>
-              <td>Any string that starts with <span class="mono">owui-voice-</span></td>
-            </tr>
-            <tr>
-              <td><span class="pill">Turn Detection</span></td>
-              <td>
-                How the agent decides you’ve finished speaking.
-                <span class="mono">ml</span> uses a dedicated turn detector; <span class="mono">stt</span>
+	          <tbody>
+	            <tr>
+	              <td><span class="pill">Room</span></td>
+	              <td>
+	                LiveKit room name. People in the same room hear the same agent.
+	                Must start with <span class="mono">owui-voice-</span>.
+	              </td>
+	              <td>Any string that starts with <span class="mono">owui-voice-</span></td>
+	            </tr>
+	            <tr>
+	              <td><span class="pill">LLM Model</span></td>
+	              <td>
+	                Which Cerebras LLM the agent uses for the “thinking” step. Changes apply when the
+	                agent starts (connect or <span class="mono">Apply</span>).
+	              </td>
+	              <td><span class="mono">glm-4.6</span> (default) or <span class="mono">glm-4.7</span></td>
+	            </tr>
+	            <tr>
+	              <td><span class="pill">Turn Detection</span></td>
+	              <td>
+	                How the agent decides you’ve finished speaking.
+	                <span class="mono">ml</span> uses a dedicated turn detector; <span class="mono">stt</span>
                 relies more on STT endpointing.
               </td>
               <td><span class="mono">ml</span> (recommended) or <span class="mono">stt</span></td>
@@ -384,7 +403,7 @@
 
 	    <script src="https://cdn.jsdelivr.net/npm/livekit-client/dist/livekit-client.umd.min.js"></script>
 	    <script>
-	      const PAGE_VERSION = "2026-01-06";
+	      const PAGE_VERSION = "2026-01-07";
 	      const transcriptEl = document.getElementById("transcript");
       const transcriptHintEl = document.getElementById("transcript_hint");
       const copyTranscriptBtn = document.getElementById("copy_transcript");
@@ -403,12 +422,13 @@
       const copyLogsBtn = document.getElementById("copy_logs");
       const statusEl = document.getElementById("status");
 
-      const turnDetectionSelect = document.getElementById("turn_detection");
-      const minEndpointingInput = document.getElementById("min_endpointing_delay");
-      const maxEndpointingInput = document.getElementById("max_endpointing_delay");
-      const allowInterruptionsInput = document.getElementById("allow_interruptions");
-      const minInterruptionDurationInput = document.getElementById("min_interruption_duration");
-      const minInterruptionWordsInput = document.getElementById("min_interruption_words");
+	      const turnDetectionSelect = document.getElementById("turn_detection");
+	      const llmModelSelect = document.getElementById("llm_model");
+	      const minEndpointingInput = document.getElementById("min_endpointing_delay");
+	      const maxEndpointingInput = document.getElementById("max_endpointing_delay");
+	      const allowInterruptionsInput = document.getElementById("allow_interruptions");
+	      const minInterruptionDurationInput = document.getElementById("min_interruption_duration");
+	      const minInterruptionWordsInput = document.getElementById("min_interruption_words");
       const ttsVoiceInput = document.getElementById("tts_voice");
       const keepAwakeInput = document.getElementById("keep_awake");
 
@@ -895,13 +915,14 @@
         wakeLockSentinel = null;
       }
 
-      function getSettings() {
-        return {
-          turn_detection: turnDetectionSelect.value,
-          allow_interruptions: allowInterruptionsInput.checked,
-          min_endpointing_delay: minEndpointingInput.value,
-          max_endpointing_delay: maxEndpointingInput.value,
-          min_interruption_duration: minInterruptionDurationInput.value,
+	      function getSettings() {
+	        return {
+	          llm_model: llmModelSelect?.value || "",
+	          turn_detection: turnDetectionSelect.value,
+	          allow_interruptions: allowInterruptionsInput.checked,
+	          min_endpointing_delay: minEndpointingInput.value,
+	          max_endpointing_delay: maxEndpointingInput.value,
+	          min_interruption_duration: minInterruptionDurationInput.value,
           min_interruption_words: minInterruptionWordsInput.value,
           tts_voice: ttsVoiceInput.value,
           keep_awake: keepAwakeInput.checked,
@@ -916,13 +937,14 @@
         } catch {}
       }
 
-      function loadSettings() {
-	        const defaults = {
-	          turn_detection: "ml",
-	          allow_interruptions: true,
-	          min_endpointing_delay: "5",
-	          max_endpointing_delay: "5",
-	          min_interruption_duration: "1",
+	      function loadSettings() {
+		        const defaults = {
+		          llm_model: "glm-4.6",
+		          turn_detection: "ml",
+		          allow_interruptions: true,
+		          min_endpointing_delay: "5",
+		          max_endpointing_delay: "5",
+		          min_interruption_duration: "1",
 	          min_interruption_words: "2",
 	          tts_voice: "7f6cad5b-fc48-4682-9f84-bc329065b096",
 	          keep_awake: true,
@@ -937,12 +959,13 @@
           saved = null;
         }
 
-        const s = { ...defaults, ...(saved && typeof saved === "object" ? saved : {}) };
-        turnDetectionSelect.value = s.turn_detection || "ml";
-        allowInterruptionsInput.checked = !!s.allow_interruptions;
-        minEndpointingInput.value = s.min_endpointing_delay ?? defaults.min_endpointing_delay;
-        maxEndpointingInput.value = s.max_endpointing_delay ?? defaults.max_endpointing_delay;
-        minInterruptionDurationInput.value =
+	        const s = { ...defaults, ...(saved && typeof saved === "object" ? saved : {}) };
+	        if (llmModelSelect) llmModelSelect.value = s.llm_model ?? defaults.llm_model;
+	        turnDetectionSelect.value = s.turn_detection || "ml";
+	        allowInterruptionsInput.checked = !!s.allow_interruptions;
+	        minEndpointingInput.value = s.min_endpointing_delay ?? defaults.min_endpointing_delay;
+	        maxEndpointingInput.value = s.max_endpointing_delay ?? defaults.max_endpointing_delay;
+	        minInterruptionDurationInput.value =
           s.min_interruption_duration ?? defaults.min_interruption_duration;
         minInterruptionWordsInput.value = s.min_interruption_words ?? defaults.min_interruption_words;
         ttsVoiceInput.value = s.tts_voice ?? defaults.tts_voice;
@@ -959,28 +982,43 @@
 	        wakeLock: "wakeLock" in navigator,
 	        mediaDevices: !!navigator.mediaDevices,
 	      });
-      info("Network status", { online: navigator.onLine });
+	      info("Network status", { online: navigator.onLine });
 
-      // Support pre-filling via URL params, e.g. /livekit/?voice=<cartesia_voice_id>
-      try {
-        const urlParams = new URLSearchParams(window.location.search);
-        const voiceParam = (urlParams.get("voice") || urlParams.get("tts_voice") || "").trim();
-        if (voiceParam) {
-          ttsVoiceInput.value = voiceParam;
-        }
-      } catch {}
+	      function normalizeLlmModelParam(raw) {
+	        const v = String(raw || "").trim();
+	        if (!v) return "";
+	        const s = v.toLowerCase();
+	        if (s === "4.6" || s === "glm4.6" || s === "glm-4.6") return "glm-4.6";
+	        if (s === "4.7" || s === "glm4.7" || s === "glm-4.7") return "glm-4.7";
+	        return v;
+	      }
+
+	      // Support pre-filling via URL params, e.g. /livekit/?voice=<cartesia_voice_id>
+	      try {
+	        const urlParams = new URLSearchParams(window.location.search);
+	        const voiceParam = (urlParams.get("voice") || urlParams.get("tts_voice") || "").trim();
+	        if (voiceParam) {
+	          ttsVoiceInput.value = voiceParam;
+	        }
+	        const llmParamRaw = (urlParams.get("llm_model") || urlParams.get("llm") || "").trim();
+	        const llmParam = normalizeLlmModelParam(llmParamRaw);
+	        if (llmParam && llmModelSelect) {
+	          llmModelSelect.value = llmParam;
+	        }
+	      } catch {}
 
       async function mintToken(roomName) {
         const token = localStorage.getItem("token");
         if (!token) throw new Error("Missing Open WebUI token in localStorage.token");
 
-        const settings = getSettings();
-        const params = new URLSearchParams({ room: roomName });
-        params.set("turn_detection", settings.turn_detection);
-        params.set("allow_interruptions", settings.allow_interruptions ? "true" : "false");
-        if (settings.tts_voice && settings.tts_voice.trim()) {
-          params.set("tts_voice", settings.tts_voice.trim());
-        }
+	        const settings = getSettings();
+	        const params = new URLSearchParams({ room: roomName });
+	        if (settings.llm_model) params.set("llm_model", settings.llm_model);
+	        params.set("turn_detection", settings.turn_detection);
+	        params.set("allow_interruptions", settings.allow_interruptions ? "true" : "false");
+	        if (settings.tts_voice && settings.tts_voice.trim()) {
+	          params.set("tts_voice", settings.tts_voice.trim());
+	        }
         if (settings.min_endpointing_delay) {
           params.set("min_endpointing_delay", settings.min_endpointing_delay);
         }
@@ -1017,17 +1055,18 @@
         return payload;
       }
 
-      async function applyAgentSettings(roomName, { force = false } = {}) {
-        const token = localStorage.getItem("token");
-        if (!token) throw new Error("Missing Open WebUI token in localStorage.token");
+	      async function applyAgentSettings(roomName, { force = false } = {}) {
+	        const token = localStorage.getItem("token");
+	        if (!token) throw new Error("Missing Open WebUI token in localStorage.token");
 
-        const settings = getSettings();
-        const params = new URLSearchParams({ room: roomName });
-        params.set("turn_detection", settings.turn_detection);
-        params.set("allow_interruptions", settings.allow_interruptions ? "true" : "false");
-        if (settings.tts_voice && settings.tts_voice.trim()) {
-          params.set("tts_voice", settings.tts_voice.trim());
-        }
+	        const settings = getSettings();
+	        const params = new URLSearchParams({ room: roomName });
+	        if (settings.llm_model) params.set("llm_model", settings.llm_model);
+	        params.set("turn_detection", settings.turn_detection);
+	        params.set("allow_interruptions", settings.allow_interruptions ? "true" : "false");
+	        if (settings.tts_voice && settings.tts_voice.trim()) {
+	          params.set("tts_voice", settings.tts_voice.trim());
+	        }
         if (settings.min_endpointing_delay) {
           params.set("min_endpointing_delay", settings.min_endpointing_delay);
         }

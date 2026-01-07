@@ -49,6 +49,7 @@ def _get_livekit():
 
 def _build_voice_settings(
     *,
+    llm_model: str | None,
     turn_detection: str | None,
     allow_interruptions: bool | None,
     min_endpointing_delay: float | None,
@@ -58,6 +59,20 @@ def _build_voice_settings(
     tts_voice: str | None,
 ) -> dict[str, object]:
     voice_settings: dict[str, object] = {}
+
+    if llm_model is not None:
+        normalized_llm_model = llm_model.strip()
+        if normalized_llm_model:
+            lowered = normalized_llm_model.lower()
+            if lowered in ("4.6", "glm4.6", "glm-4.6", "zai-glm-4.6"):
+                voice_settings["llm_model"] = "zai-glm-4.6"
+            elif lowered in ("4.7", "glm4.7", "glm-4.7", "zai-glm-4.7"):
+                voice_settings["llm_model"] = "zai-glm-4.7"
+            else:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Invalid llm_model (allowed: glm-4.6, glm-4.7)",
+                )
 
     if turn_detection:
         normalized_turn_detection = turn_detection.strip().lower()
@@ -125,6 +140,7 @@ async def index():
 @app.get("/token")
 async def token(
     room: str | None = None,
+    llm_model: str | None = Query(default=None),
     turn_detection: str | None = Query(default=None),
     allow_interruptions: bool | None = Query(default=None),
     min_endpointing_delay: float | None = Query(default=None, ge=0.0, le=10.0),
@@ -175,6 +191,7 @@ async def token(
     from livekit.protocol.room import RoomConfiguration
 
     voice_settings = _build_voice_settings(
+        llm_model=llm_model,
         turn_detection=turn_detection,
         allow_interruptions=allow_interruptions,
         min_endpointing_delay=min_endpointing_delay,
@@ -288,6 +305,7 @@ async def token(
 @app.post("/apply")
 async def apply(
     room: str,
+    llm_model: str | None = Query(default=None),
     turn_detection: str | None = Query(default=None),
     allow_interruptions: bool | None = Query(default=None),
     min_endpointing_delay: float | None = Query(default=None, ge=0.0, le=10.0),
@@ -325,6 +343,7 @@ async def apply(
         raise HTTPException(status_code=400, detail="Invalid room name")
 
     voice_settings = _build_voice_settings(
+        llm_model=llm_model,
         turn_detection=turn_detection,
         allow_interruptions=allow_interruptions,
         min_endpointing_delay=min_endpointing_delay,

@@ -18,7 +18,7 @@ AGENT_NAME = os.getenv("LIVEKIT_AGENT_NAME", "owui-voice")
 STT_MODEL = os.getenv("LIVEKIT_STT_MODEL", "ink-whisper")
 STT_LANGUAGE = os.getenv("LIVEKIT_STT_LANGUAGE", "en")
 
-LLM_MODEL = os.getenv("LIVEKIT_LLM_MODEL", "zai-glm-4.7")
+LLM_MODEL = os.getenv("LIVEKIT_LLM_MODEL", "zai-glm-4.6")
 
 TTS_MODEL = os.getenv("LIVEKIT_TTS_MODEL", "sonic-2")
 TTS_VOICE = os.getenv("LIVEKIT_TTS_VOICE", "").strip()
@@ -140,6 +140,7 @@ async def entrypoint(ctx: agents.JobContext):
     )
     min_interruption_words = _coerce_int(voice_settings.get("min_interruption_words"))
     tts_voice_override = str(voice_settings.get("tts_voice", "")).strip()
+    llm_model_override = str(voice_settings.get("llm_model", "")).strip().lower()
 
     session_kwargs: dict[str, object] = {
         "turn_detection": _turn_detection(turn_detection_mode),
@@ -168,6 +169,11 @@ async def entrypoint(ctx: agents.JobContext):
     session_kwargs_log = {k: v for k, v in session_kwargs.items() if k != "turn_detection"}
 
     resolved_tts_voice = tts_voice_override or TTS_VOICE
+    resolved_llm_model = (
+        llm_model_override
+        if llm_model_override in ("zai-glm-4.6", "zai-glm-4.7")
+        else LLM_MODEL
+    )
 
     logger.info(
         "starting session",
@@ -175,7 +181,7 @@ async def entrypoint(ctx: agents.JobContext):
             "agent_name": AGENT_NAME,
             "stt_model": STT_MODEL,
             "stt_language": STT_LANGUAGE,
-            "llm_model": LLM_MODEL,
+            "llm_model": resolved_llm_model,
             "tts_model": TTS_MODEL,
             "tts_voice": resolved_tts_voice or None,
             "turn_detection": turn_detection_mode,
@@ -190,8 +196,8 @@ async def entrypoint(ctx: agents.JobContext):
     session = AgentSession(
         # STT: Cartesia Ink Whisper
         stt=cartesia.STT(model=STT_MODEL, language=STT_LANGUAGE),
-        # LLM: Cerebras Cloud (OpenAI-compatible) — set LLM_MODEL to e.g. "zai-glm-4.7"
-        llm=openai.LLM.with_cerebras(model=LLM_MODEL),
+        # LLM: Cerebras Cloud (OpenAI-compatible) — e.g. "zai-glm-4.6" or "zai-glm-4.7"
+        llm=openai.LLM.with_cerebras(model=resolved_llm_model),
         # TTS: Cartesia Sonic
         tts=cartesia.TTS(**tts_kwargs),
         **session_kwargs,
@@ -207,7 +213,7 @@ async def entrypoint(ctx: agents.JobContext):
                 **payload,
                 "ts": time.time(),
                 "agent_name": AGENT_NAME,
-                "llm_model": LLM_MODEL,
+                "llm_model": resolved_llm_model,
                 "stt_model": STT_MODEL,
                 "tts_model": TTS_MODEL,
             }
@@ -718,7 +724,7 @@ async def entrypoint(ctx: agents.JobContext):
                 "turn_detection": turn_detection_mode,
                 "session_kwargs": session_kwargs_log,
                 "tts_voice": resolved_tts_voice or None,
-                "llm_model": LLM_MODEL,
+                "llm_model": resolved_llm_model,
                 "stt_model": STT_MODEL,
                 "stt_language": STT_LANGUAGE,
                 "tts_model": TTS_MODEL,
