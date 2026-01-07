@@ -106,7 +106,7 @@ def main() -> int:
                 f"LIVEKIT_AGENT_NAME='{agent_name}'",
                 "",
                 "# Optional overrides",
-                "# LIVEKIT_LLM_MODEL='zai-glm-4.6'",
+                "# LIVEKIT_LLM_MODEL='zai-glm-4.7'",
                 "# LIVEKIT_STT_MODEL='ink-whisper'",
                 "# LIVEKIT_STT_LANGUAGE='en'",
                 "# LIVEKIT_TTS_MODEL='sonic-2'",
@@ -131,4 +131,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
