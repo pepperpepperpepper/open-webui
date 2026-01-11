@@ -29,14 +29,14 @@ esac
 /home/pepper/apps/open-webui/.venv/bin/python /home/pepper/apps/open-webui/deploy/ensure_openai_provider_prefixes.py
 /home/pepper/apps/open-webui/.venv/bin/python /home/pepper/apps/open-webui/deploy/ensure_default_models.py \
   --force \
-  --default-model "cerebras.zai-glm-4.6" \
-  --pinned-models "cerebras.zai-glm-4.6" \
-  --task-model-external "cerebras.zai-glm-4.6"
+  --default-model "cerebras.zai-glm-4.7" \
+  --pinned-models "cerebras.zai-glm-4.7" \
+  --task-model-external "cerebras.zai-glm-4.7"
 
 /home/pepper/apps/open-webui/.venv/bin/python /home/pepper/apps/open-webui/deploy/ensure_user_default_models.py \
   --force \
   --email "peppersclothescult@gmail.com" \
-  --models "cerebras.zai-glm-4.6" \
-  --pinned-models "cerebras.zai-glm-4.6"
+  --models "cerebras.zai-glm-4.7" \
+  --pinned-models "cerebras.zai-glm-4.7"
 
 sudo s6-svc -r /service/open-webui

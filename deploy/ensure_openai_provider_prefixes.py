@@ -13,6 +13,7 @@ import sqlalchemy as sa
 DEFAULT_PREFIXES: dict[str, str] = {
     "https://api.groq.com/openai/v1": "groq",
     "https://api.cerebras.ai/v1": "cerebras",
+    "https://api.fireworks.ai/inference/v1": "fireworks",
 }
 
 
@@ -174,4 +175,3 @@ def main(argv: list[str]) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main(os.sys.argv[1:]))
-

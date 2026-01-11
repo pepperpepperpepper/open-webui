@@ -13,7 +13,7 @@ set +a
 # Sync OpenAI-compatible provider keys from env → Postgres so updates to ~/.api-keys
 # take effect without needing to click through the admin UI.
 /usr/bin/s6-setuidgid pepper \
-  /home/pepper/apps/open-webui/.venv/bin/python /home/pepper/apps/open-webui/deploy/sync_openai_provider_keys_from_env.py || true
+  /home/pepper/apps/open-webui/.venv/bin/python /home/pepper/apps/open-webui/deploy/sync_openai_provider_keys_from_env.py --append-missing-urls || true
 
 # Ensure provider prefixes exist (prevents de-duplication across providers).
 /usr/bin/s6-setuidgid pepper \

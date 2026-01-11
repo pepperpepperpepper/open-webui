@@ -1,0 +1,22 @@
+{
+  "name": "Open WebUI LiveKit Voice",
+  "short_name": "LiveKit Voice",
+  "description": "Voice portal for Open WebUI using LiveKit",
+  "start_url": "/livekit/",
+  "scope": "/livekit/",
+  "display": "standalone",
+  "background_color": "#0b0f19",
+  "theme_color": "#0b0f19",
+  "icons": [
+    {
+      "src": "/livekit/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/livekit/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}

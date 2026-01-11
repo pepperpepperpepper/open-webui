@@ -7,9 +7,13 @@ from pathlib import Path
 
 import jwt
 from fastapi import FastAPI, Header, HTTPException, Query
-from fastapi.responses import HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse
 
-HTML_PATH = Path(__file__).with_name("index.html")
+LIVEKIT_DIR = Path(__file__).resolve().parent
+HTML_PATH = LIVEKIT_DIR / "index.html"
+MANIFEST_PATH = LIVEKIT_DIR / "manifest.webmanifest"
+SW_PATH = LIVEKIT_DIR / "sw.js"
+ICONS_DIR = LIVEKIT_DIR / "icons"
 KEY_FILE = Path.cwd() / ".webui_secret_key"
 
 LIVEKIT_URL = os.environ.get("LIVEKIT_URL", "")
@@ -133,6 +137,48 @@ async def index():
             "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
             "Pragma": "no-cache",
             "Expires": "0",
+        },
+    )
+
+
+@app.get("/manifest.webmanifest")
+async def manifest():
+    return FileResponse(
+        MANIFEST_PATH,
+        media_type="application/manifest+json",
+        headers={
+            # Keep install metadata fresh; changes should be picked up quickly.
+            "Cache-Control": "no-cache",
+        },
+    )
+
+
+@app.get("/sw.js")
+async def service_worker():
+    return FileResponse(
+        SW_PATH,
+        media_type="application/javascript",
+        headers={
+            # Service worker updates should always revalidate.
+            "Cache-Control": "no-cache",
+        },
+    )
+
+
+@app.get("/icons/{filename}")
+async def icon(filename: str):
+    if filename not in ("icon-192.png", "icon-512.png"):
+        raise HTTPException(status_code=404, detail="Not found")
+
+    path = ICONS_DIR / filename
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="Not found")
+
+    return FileResponse(
+        path,
+        media_type="image/png",
+        headers={
+            "Cache-Control": "public, max-age=604800, immutable",
         },
     )
 

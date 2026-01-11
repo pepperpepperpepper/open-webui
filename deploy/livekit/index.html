@@ -4,6 +4,10 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Open WebUI • LiveKit Voice</title>
+    <meta name="theme-color" content="#0b0f19" />
+    <link rel="manifest" href="manifest.webmanifest" />
+    <link rel="icon" href="icons/icon-192.png" />
+    <link rel="apple-touch-icon" href="icons/icon-192.png" />
     <style>
       :root {
         color-scheme: dark;
@@ -165,8 +169,8 @@
 	          <label>
 	            LLM Model (Cerebras)
 	            <select id="llm_model">
-	              <option value="glm-4.6">GLM 4.6 (default)</option>
-	              <option value="glm-4.7">GLM 4.7</option>
+	              <option value="glm-4.7">GLM 4.7 (default)</option>
+	              <option value="glm-4.6">GLM 4.6</option>
 	            </select>
 	          </label>
 	        </div>
@@ -284,7 +288,7 @@
 	                Which Cerebras LLM the agent uses for the “thinking” step. Changes apply when the
 	                agent starts (connect or <span class="mono">Apply</span>).
 	              </td>
-	              <td><span class="mono">glm-4.6</span> (default) or <span class="mono">glm-4.7</span></td>
+	              <td><span class="mono">glm-4.7</span> (default) or <span class="mono">glm-4.6</span></td>
 	            </tr>
 	            <tr>
 	              <td><span class="pill">Turn Detection</span></td>
@@ -404,6 +408,9 @@
 	    <script src="https://cdn.jsdelivr.net/npm/livekit-client/dist/livekit-client.umd.min.js"></script>
 	    <script>
 	      const PAGE_VERSION = "2026-01-07";
+	      if ("serviceWorker" in navigator) {
+	        navigator.serviceWorker.register("sw.js", { scope: "./" }).catch(() => {});
+	      }
 	      const transcriptEl = document.getElementById("transcript");
       const transcriptHintEl = document.getElementById("transcript_hint");
       const copyTranscriptBtn = document.getElementById("copy_transcript");
@@ -937,20 +944,20 @@
         } catch {}
       }
 
-	      function loadSettings() {
-		        const defaults = {
-		          llm_model: "glm-4.6",
-		          turn_detection: "ml",
-		          allow_interruptions: true,
-		          min_endpointing_delay: "5",
-		          max_endpointing_delay: "5",
-		          min_interruption_duration: "1",
-	          min_interruption_words: "2",
-	          tts_voice: "7f6cad5b-fc48-4682-9f84-bc329065b096",
-	          keep_awake: true,
-	          verbose_logs: true,
-	          autoscroll: true,
-	        };
+		      function loadSettings() {
+			        const defaults = {
+			          llm_model: "glm-4.7",
+			          turn_detection: "ml",
+			          allow_interruptions: true,
+			          min_endpointing_delay: "2",
+			          max_endpointing_delay: "5.0",
+			          min_interruption_duration: "0.7",
+		          min_interruption_words: "2",
+		          tts_voice: "",
+		          keep_awake: true,
+		          verbose_logs: true,
+		          autoscroll: true,
+		        };
 
         let saved = null;
         try {

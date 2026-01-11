@@ -18,7 +18,7 @@ AGENT_NAME = os.getenv("LIVEKIT_AGENT_NAME", "owui-voice")
 STT_MODEL = os.getenv("LIVEKIT_STT_MODEL", "ink-whisper")
 STT_LANGUAGE = os.getenv("LIVEKIT_STT_LANGUAGE", "en")
 
-LLM_MODEL = os.getenv("LIVEKIT_LLM_MODEL", "zai-glm-4.6")
+LLM_MODEL = os.getenv("LIVEKIT_LLM_MODEL", "zai-glm-4.7")
 
 TTS_MODEL = os.getenv("LIVEKIT_TTS_MODEL", "sonic-2")
 TTS_VOICE = os.getenv("LIVEKIT_TTS_VOICE", "").strip()

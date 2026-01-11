@@ -43,6 +43,13 @@ done
 ./deploy/pin_open_webui_wheel.sh "$WHEEL" $TAG_ARGS
 ./deploy/reapply_after_open_webui_upgrade.sh
 
+for svc in $S6_SERVICES; do
+  if sudo test -d "/service/$svc" && sudo test -d "/home/pepper/apps/open-webui/deploy/s6/$svc"; then
+    echo "[info] Syncing s6 template: $svc"
+    sudo cp -a "/home/pepper/apps/open-webui/deploy/s6/$svc/." "/service/$svc/" || true
+  fi
+done
+
 for svc in $S6_UP_BEFORE; do
   if sudo test -d "/service/$svc"; then
     echo "[info] Starting s6 service: $svc"
