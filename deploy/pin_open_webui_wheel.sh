@@ -70,11 +70,12 @@ cd "$ROOT"
 
 mkdir -p "$DEPLOY_DIR/vendor"
 WHEEL_NAME="$(basename "$WHEEL_SRC")"
-WHEEL_DEST="deploy/vendor/$WHEEL_NAME"
-cp -f "$WHEEL_SRC" "$WHEEL_DEST"
+WHEEL_DEST_ABS="$DEPLOY_DIR/vendor/$WHEEL_NAME"
+WHEEL_DEST_REL="vendor/$WHEEL_NAME"
+cp -f "$WHEEL_SRC" "$WHEEL_DEST_ABS"
 
 SHA256="$(
-  python3 - "$WHEEL_DEST" <<'PY'
+  python3 - "$WHEEL_DEST_ABS" <<'PY'
 import hashlib
 import pathlib
 import sys
@@ -88,7 +89,7 @@ print(h.hexdigest())
 PY
 )"
 
-python3 - "$WHEEL_DEST" <<'PY'
+python3 - "$WHEEL_DEST_REL" <<'PY'
 import pathlib
 import re
 import sys
@@ -111,10 +112,10 @@ fi
 
 if [ "$DO_INSTALL" -eq 1 ]; then
   (cd "$DEPLOY_DIR" && poetry install)
-  (cd "$DEPLOY_DIR" && poetry run pip install --no-deps --force-reinstall "$ROOT/$WHEEL_DEST")
+  (cd "$DEPLOY_DIR" && poetry run pip install --no-deps --force-reinstall "$WHEEL_DEST_ABS")
 fi
 
-python3 - "$WHEEL_DEST" "$SHA256" "$TAG" <<'PY'
+python3 - "$WHEEL_DEST_REL" "$SHA256" "$TAG" <<'PY'
 import json
 import os
 import sys
@@ -136,7 +137,7 @@ with open("deploy/open_webui_wheel_pin.json", "w", encoding="utf-8") as f:
 PY
 
 echo "Pinned open-webui wheel:"
-echo "  $WHEEL_DEST"
+echo "  $WHEEL_DEST_REL"
 echo "  sha256=$SHA256"
 if [ -n "$TAG" ]; then
   echo "  tag=$TAG"

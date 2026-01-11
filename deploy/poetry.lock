@@ -4823,13 +4823,13 @@ sympy = "*"
 
 [[package]]
 name = "open-webui"
-version = "0.6.43+pepper.1"
+version = "0.6.43+pepper.2"
 description = "Open WebUI"
 optional = false
 python-versions = "<3.13.0a1,>=3.11"
 groups = ["main"]
 files = [
-    {file = "open_webui-0.6.43+pepper.1-py3-none-any.whl", hash = "sha256:7e0a75374a213387e2decda2afb5b523cf4ac09ccd555e7041a111cc9ddc786a"},
+    {file = "open_webui-0.6.43+pepper.2-py3-none-any.whl", hash = "sha256:e45dfd67bbb160640a4d405025cb66009b7cd109ea67c2e7adec90f7f20d7587"},
 ]
 
 [package.dependencies]
@@ -4931,7 +4931,7 @@ postgres = ["pgvector (==0.4.2)", "psycopg2-binary (==2.9.11)"]
 
 [package.source]
 type = "file"
-url = "vendor/open_webui-0.6.43+pepper.1-py3-none-any.whl"
+url = "vendor/open_webui-0.6.43+pepper.2-py3-none-any.whl"
 
 [[package]]
 name = "openai"
@@ -9918,4 +9918,4 @@ cffi = ["cffi (>=1.17,<2.0) ; platform_python_implementation != \"PyPy\" and pyt
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.11,<3.13"
-content-hash = "b7f7ea730cbd89dcf48c0a256a1a0a356a14b3a1154240e1d283b6cad883cb3d"
+content-hash = "4c5a763ee7e11288f8dd62d43c01511535afac071c96972508ab60d0657c9387"
