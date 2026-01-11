@@ -25,6 +25,7 @@ from starlette.responses import Response, StreamingResponse, JSONResponse
 
 
 from open_webui.utils.misc import is_string_allowed
+from open_webui.utils.access_control import has_permission
 from open_webui.models.oauth_sessions import OAuthSessions
 from open_webui.models.chats import Chats
 from open_webui.models.folders import Folders
@@ -556,19 +557,53 @@ async def chat_web_search_handler(
     request: Request, form_data: dict, extra_params: dict, user
 ):
     event_emitter = extra_params["__event_emitter__"]
-    await event_emitter(
-        {
-            "type": "status",
-            "data": {
-                "action": "web_search",
-                "description": "Searching the web",
-                "done": False,
-            },
-        }
-    )
 
     messages = form_data["messages"]
     user_message = get_last_user_message(messages)
+
+    def _is_web_access_meta_question(text: str) -> bool:
+        if not isinstance(text, str) or not text.strip():
+            return False
+        m = text.lower()
+        return bool(
+            re.search(
+                r"\b(do you|can you|are you able to)\b.*\b(access|browse|search|look up|lookup)\b.*\b(web|internet)\b",
+                m,
+            )
+        )
+
+    def _should_fallback_search(text: str) -> bool:
+        if _is_web_access_meta_question(text):
+            return False
+        if not isinstance(text, str) or not text.strip():
+            return False
+        m = text.lower()
+        # Only fall back to searching on query-generation failure for clearly
+        # time-sensitive / "please verify" requests.
+        triggers = (
+            "today",
+            "latest",
+            "current",
+            "breaking",
+            "news",
+            "as of",
+            "right now",
+            "price",
+            "cost",
+            "availability",
+            "schedule",
+            "score",
+            "verify",
+            "citation",
+            "cite",
+            "source",
+            "official",
+            "look up",
+            "lookup",
+            "search the web",
+            "browse the web",
+        )
+        return any(t in m for t in triggers)
 
     queries = []
     try:
@@ -603,25 +638,32 @@ async def chat_web_search_handler(
 
     except Exception as e:
         log.exception(e)
-        queries = [user_message]
+        queries = []
 
     # Check if generated queries are empty
     if len(queries) == 1 and queries[0].strip() == "":
-        queries = [user_message]
+        queries = []
 
     # Check if queries are not found
     if len(queries) == 0:
-        await event_emitter(
-            {
-                "type": "status",
-                "data": {
-                    "action": "web_search",
-                    "description": "No search query generated",
-                    "done": True,
-                },
-            }
-        )
-        return form_data
+        if _should_fallback_search(user_message):
+            queries = [user_message]
+        else:
+            # Query generation intentionally returns 0 queries when web search isn't needed.
+            # Don't spam the UI with “Searching the web → No search query generated” for
+            # normal chats where the user doesn't need up-to-date info.
+            return form_data
+
+    await event_emitter(
+        {
+            "type": "status",
+            "data": {
+                "action": "web_search",
+                "description": "Searching the web",
+                "done": False,
+            },
+        }
+    )
 
     await event_emitter(
         {
@@ -1173,6 +1215,46 @@ async def process_chat_payload(request, form_data, user, metadata, model):
         except:
             pass
 
+    # Prevent models from hallucinating “real-time web access” when the user asks
+    # about browsing/searching capabilities.
+    #
+    # Note: We intentionally do NOT inject this notice for every prompt because it
+    # can become distracting and degrade response quality. Instead, we add it only
+    # for “can you browse/search the internet?”-style meta questions.
+    try:
+        _user_message = get_last_user_message(form_data.get("messages", [])) or ""
+        _is_web_access_meta_question = False
+        if isinstance(_user_message, str) and _user_message.strip():
+            _m = _user_message.lower()
+            _is_web_access_meta_question = bool(
+                re.search(
+                    r"\b(do you|can you|are you able to)\b.*\b(access|browse|search|look up|lookup)\b.*\b(web|internet)\b",
+                    _m,
+                )
+            ) or ("search tool" in _m and ("web" in _m or "internet" in _m))
+
+        if not _is_web_access_meta_question:
+            raise Exception("skip")
+
+        _marker = "OWUI_WEB_ACCESS_NOTICE"
+        _notice = (
+            "\n\n[OWUI_WEB_ACCESS_NOTICE]\n"
+            "Web access:\n"
+            "- You do not have direct access to the internet.\n"
+            "- If the system performed a web search, sources will be provided in the prompt (e.g., <source id=\"...\"></source> blocks).\n"
+            "- Only claim you searched/browsed/verified current information when such sources are present.\n"
+            "- If no sources are provided, clearly say you cannot verify in real time.\n"
+        )
+
+        _sys = get_system_message(form_data.get("messages", []))
+        _sys_content = _sys.get("content", "") if isinstance(_sys, dict) else ""
+        if _marker not in str(_sys_content):
+            form_data["messages"] = add_or_update_system_message(
+                _notice, form_data.get("messages", []), append=True
+            )
+    except Exception:
+        pass
+
     form_data = await convert_url_images_to_base64(form_data)
 
     event_emitter = get_event_emitter(metadata)
@@ -1305,7 +1387,35 @@ async def process_chat_payload(request, form_data, user, metadata, model):
     except Exception as e:
         raise Exception(f"{e}")
 
-    features = form_data.pop("features", None)
+    features = form_data.pop("features", None) or {}
+    if not isinstance(features, dict):
+        features = {}
+
+    # Server-side mirror of the frontend "Web Search: Always" setting.
+    # This prevents silent downgrades (no web search) when the frontend can't read
+    # `/api/config` as an authenticated user (e.g., missing cookie in some browsers/webviews).
+    try:
+        user_settings = (
+            user.settings.model_dump(mode="json")
+            if getattr(user, "settings", None) is not None
+            else {}
+        )
+    except Exception:
+        user_settings = {}
+
+    if (
+        user_settings.get("webSearch") == "always"
+        and request.app.state.config.ENABLE_WEB_SEARCH
+        and "__event_emitter__" in extra_params
+        and (
+            user.role == "admin"
+            or has_permission(
+                user.id, "features.web_search", request.app.state.config.USER_PERMISSIONS
+            )
+        )
+    ):
+        features["web_search"] = True
+
     if features:
         if "voice" in features and features["voice"]:
             if request.app.state.config.VOICE_MODE_PROMPT_TEMPLATE != None:

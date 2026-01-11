@@ -35,7 +35,8 @@ def search_serper(
         SearchResult(
             link=result["link"],
             title=result.get("title"),
-            snippet=result.get("description"),
+            # Serper's organic results commonly use `snippet` (older/alternate payloads may use `description`).
+            snippet=result.get("snippet") or result.get("description"),
         )
         for result in results[:count]
     ]

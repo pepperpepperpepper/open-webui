@@ -27,6 +27,16 @@ Current patches:
 - **Cartesia STT/TTS via OpenAI-compatible settings** (backend):
   - `backend/open_webui/routers/audio.py`
   - Adds Cartesia `/voices` listing (with `Cartesia-Version` header), routes TTS to `/tts/bytes`, and normalizes STT model/language for Cartesia.
+- **Serper snippet field compatibility** (backend):
+  - `backend/open_webui/retrieval/web/serper.py`
+  - Uses `snippet` (fallback `description`) for result excerpts so Web Search context is actually populated.
+- **Web Search “always” enforced server-side** (backend):
+  - `backend/open_webui/utils/middleware.py`
+  - Mirrors the UI “Web Search: Always” setting on the backend so web search doesn’t silently disable if `/api/config` can’t be read as authenticated.
+  - Also avoids spamming the UI with “Searching the web → No search query generated” when the query gatekeeper decides search isn’t needed.
+- **Truthful web access notice** (backend):
+  - `backend/open_webui/utils/middleware.py`
+  - Adds a small, idempotent system prompt appendix (only for “can you browse/search?” meta questions) to stop models from claiming they “searched the web” unless web-search sources are actually present in the prompt.
 - **Cerebras provider timing logs** (backend):
   - `backend/open_webui/routers/openai.py`
   - Adds high-signal logs for Cerebras requests (start → headers → TTFT → done/error).
