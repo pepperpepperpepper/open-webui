@@ -46,6 +46,13 @@ Current patches:
 - **ChatControls ResizeObserver guard** (frontend):
   - `src/lib/components/chat/ChatControls.svelte`
   - Prevents a race where `pane` becomes `null` while the observer callback still runs.
+- **Send to LiveKit Voice button** (frontend):
+  - `src/lib/components/pepper/SendToLiveKit.svelte`
+  - `src/lib/components/chat/MessageInput.svelte`
+  - Adds a one-click “Send to LiveKit” button that opens `/livekit/` with `room=<chat>` + `chat_id=<chat>` so voice sessions stay tied to a chat.
+- **LiveKit portal deep-linking + chat context import** (deploy):
+  - `deploy/livekit/index.html`
+  - Supports `/livekit/?room=...&chat_id=...` and auto-loads that chat as context (and auto-sends on connect).
 
 ## Deployment ownership boundary
 

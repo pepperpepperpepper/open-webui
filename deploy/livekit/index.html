@@ -379,6 +379,8 @@
       <div class="row log-controls">
         <button id="copy_transcript" class="secondary">Copy</button>
         <button id="clear_transcript" class="secondary">Clear</button>
+        <button id="save_to_webui" class="primary">Save to WebUI</button>
+        <button id="open_webui_chat" class="secondary" disabled>Open Chat</button>
       </div>
       <pre id="transcript"></pre>
 
@@ -407,7 +409,7 @@
 
 	    <script src="https://cdn.jsdelivr.net/npm/livekit-client/dist/livekit-client.umd.min.js"></script>
 	    <script>
-	      const PAGE_VERSION = "2026-01-07";
+	      const PAGE_VERSION = "2026-01-13";
 	      if ("serviceWorker" in navigator) {
 	        navigator.serviceWorker.register("sw.js", { scope: "./" }).catch(() => {});
 	      }
@@ -415,6 +417,8 @@
       const transcriptHintEl = document.getElementById("transcript_hint");
       const copyTranscriptBtn = document.getElementById("copy_transcript");
       const clearTranscriptBtn = document.getElementById("clear_transcript");
+      const saveToWebuiBtn = document.getElementById("save_to_webui");
+      const openWebuiChatBtn = document.getElementById("open_webui_chat");
 
       const logEl = document.getElementById("log");
       const roomInput = document.getElementById("room");
@@ -446,6 +450,7 @@
       const SETTINGS_KEY = "owui_livekit_voice_settings";
       const TRANSCRIPT_KEY_PREFIX = "owui_livekit_voice_transcript:";
       const CONTEXT_KEY_PREFIX = "owui_livekit_voice_context:";
+      const SAVED_CHAT_KEY_PREFIX = "owui_livekit_voice_saved_chat:";
       const MAX_TRANSCRIPT_ITEMS = 500;
 
       const MAX_LOG_LINES = 2000;
@@ -455,6 +460,10 @@
 
 	      let transcriptItems = [];
 	      let transcriptRoom = null;
+        let savedChatId = null;
+        let prefillChatId = null;
+        let autoSendContextOnConnect = false;
+        let autoSendContextDidRun = false;
 
 	      const CONTROL_DATA_TOPIC = "owui.voice.control";
 	      const MAX_CONTROL_TEXT_BYTES = 12000; // conservative; LiveKit payload limits vary by SDK/version
@@ -557,6 +566,48 @@
         return `${CONTEXT_KEY_PREFIX}${roomName}`;
       }
 
+      function savedChatStorageKey(roomName) {
+        return `${SAVED_CHAT_KEY_PREFIX}${roomName}`;
+      }
+
+      function renderSavedChat() {
+        if (!openWebuiChatBtn) return;
+
+        if (savedChatId) {
+          openWebuiChatBtn.disabled = false;
+          openWebuiChatBtn.dataset.chatId = savedChatId;
+        } else {
+          openWebuiChatBtn.disabled = true;
+          delete openWebuiChatBtn.dataset.chatId;
+        }
+      }
+
+      function loadSavedChat(roomName) {
+        savedChatId = null;
+        if (!roomName) {
+          renderSavedChat();
+          return;
+        }
+        try {
+          savedChatId = localStorage.getItem(savedChatStorageKey(roomName)) || null;
+        } catch {}
+        renderSavedChat();
+      }
+
+      function persistSavedChat(roomName, chatId) {
+        savedChatId = chatId || null;
+        if (!roomName) {
+          renderSavedChat();
+          return;
+        }
+        try {
+          const key = savedChatStorageKey(roomName);
+          if (savedChatId) localStorage.setItem(key, savedChatId);
+          else localStorage.removeItem(key);
+        } catch {}
+        renderSavedChat();
+      }
+
       function loadContext(roomName) {
         if (!contextTextInput) return;
         if (!roomName) {
@@ -594,9 +645,10 @@
 
         try {
           if (transcriptHintEl) {
+            const webuiPart = savedChatId ? ` • Saved to WebUI: /c/${savedChatId}` : "";
             transcriptHintEl.textContent = transcriptRoom
-              ? `Saved in localStorage (room=${transcriptRoom}, per-device). Clear it any time.`
-              : "Saved in localStorage (per-room, per-device). Clear it any time.";
+              ? `Saved in localStorage (room=${transcriptRoom}, per-device). Clear it any time.${webuiPart}`
+              : `Saved in localStorage (per-room, per-device). Clear it any time.${webuiPart}`;
           }
         } catch {}
 
@@ -606,6 +658,7 @@
       function loadTranscript(roomName) {
         transcriptRoom = roomName || null;
         transcriptItems = [];
+        loadSavedChat(roomName);
 
         if (!roomName) {
           renderTranscript();
@@ -655,6 +708,302 @@
         }
         persistTranscript();
         renderTranscript();
+      }
+
+      function coalesceTranscriptForWebui(items) {
+        const normalized = [];
+        for (const item of items || []) {
+          if (!item) continue;
+          const role = item.role;
+          if (role !== "user" && role !== "assistant") continue;
+          const text = typeof item.text === "string" ? item.text.trim() : String(item.text || "").trim();
+          if (!text) continue;
+          const ts = typeof item.ts === "number" ? item.ts : Date.now();
+          normalized.push({ role, content: text, ts });
+        }
+
+        const merged = [];
+        for (const msg of normalized) {
+          const last = merged.length ? merged[merged.length - 1] : null;
+          if (last && last.role === msg.role) {
+            last.content = `${last.content} ${msg.content}`.trim();
+            last.ts = msg.ts;
+          } else {
+            merged.push({ ...msg });
+          }
+        }
+        return merged;
+      }
+
+      function webuiModelFromLivekitSelection(value) {
+        const lowered = String(value || "").trim().toLowerCase();
+        if (lowered.includes("4.6")) return "cerebras.zai-glm-4.6";
+        if (lowered.includes("4.7")) return "cerebras.zai-glm-4.7";
+        return "cerebras.zai-glm-4.7";
+      }
+
+      function webuiMessageId() {
+        try {
+          const c = globalThis.crypto;
+          if (c?.randomUUID) return c.randomUUID();
+        } catch {}
+        return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+      }
+
+      function buildWebuiHistoryFromMessages(messages, modelId) {
+        const history = { messages: {}, currentId: null };
+        const list = [];
+        let parentMessageId = null;
+        let currentId = null;
+
+        for (const msg of messages) {
+          const id = webuiMessageId();
+          const timestamp =
+            typeof msg.ts === "number" && Number.isFinite(msg.ts)
+              ? Math.floor(msg.ts / 1000)
+              : Math.floor(Date.now() / 1000);
+
+          const message = {
+            id,
+            role: msg.role,
+            content: msg.content,
+            parentId: parentMessageId,
+            timestamp,
+            childrenIds: [],
+          };
+
+          if (msg.role === "user") {
+            message.models = [modelId];
+          } else if (msg.role === "assistant") {
+            message.model = modelId;
+            message.done = true;
+          }
+
+          if (parentMessageId !== null) {
+            history.messages[parentMessageId].childrenIds = [
+              ...history.messages[parentMessageId].childrenIds,
+              id,
+            ];
+          }
+
+          history.messages[id] = message;
+          list.push(message);
+
+          parentMessageId = id;
+          currentId = id;
+        }
+
+        history.currentId = currentId;
+        return { history, messages: list };
+      }
+
+      async function saveTranscriptToWebui() {
+        const token = localStorage.token;
+        if (!token) {
+          throw new Error("Missing localStorage.token (open the main app first)");
+        }
+
+        const roomName = transcriptRoom || roomInput.value.trim();
+        const trimmedRoom = roomName || "owui-voice";
+        const modelId = webuiModelFromLivekitSelection(llmModelSelect?.value);
+
+        const merged = coalesceTranscriptForWebui(transcriptItems);
+        if (!merged.length) {
+          throw new Error("Transcript is empty");
+        }
+
+        const now = new Date();
+        const stamp = now.toISOString().slice(0, 19).replace("T", " ");
+        const title = `LiveKit Voice — ${trimmedRoom} — ${stamp}`;
+
+        const { history, messages } = buildWebuiHistoryFromMessages(merged, modelId);
+        const chat = {
+          title,
+          models: [modelId],
+          params: {},
+          history,
+          messages,
+          tags: ["livekit"],
+          timestamp: Date.now(),
+          files: [],
+        };
+
+        const res = await fetch("/api/v1/chats/new", {
+          method: "POST",
+          headers: {
+            Accept: "application/json",
+            "Content-Type": "application/json",
+            authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({ chat, folder_id: null }),
+        });
+
+        let body = null;
+        try {
+          body = await res.json();
+        } catch {}
+
+        if (!res.ok) {
+          const msg = body?.detail || body?.message || `HTTP ${res.status}`;
+          throw new Error(msg);
+        }
+
+        if (!body?.id) throw new Error("Save succeeded, but response had no chat id");
+
+        persistSavedChat(trimmedRoom, body.id);
+        renderTranscript();
+        info("Saved transcript to Open WebUI", { chat_id: body.id, url: `/c/${body.id}` });
+        return body.id;
+      }
+
+      function extractWebuiText(content) {
+        if (content == null) return "";
+        if (typeof content === "string") return content;
+        if (Array.isArray(content)) {
+          const parts = [];
+          for (const item of content) {
+            if (typeof item === "string") {
+              parts.push(item);
+              continue;
+            }
+            if (!item || typeof item !== "object") continue;
+            if (typeof item.text === "string") {
+              parts.push(item.text);
+              continue;
+            }
+            if (item.type === "text" && typeof item.text === "string") {
+              parts.push(item.text);
+              continue;
+            }
+          }
+          return parts.join("");
+        }
+        if (typeof content === "object" && typeof content.text === "string") return content.text;
+        return "";
+      }
+
+      function extractWebuiMessageText(message) {
+        if (!message || typeof message !== "object") return "";
+        if (message.merged && typeof message.merged.content === "string") return message.merged.content;
+        return extractWebuiText(message.content);
+      }
+
+      function orderedMessagesFromChatData(chatData) {
+        const direct = Array.isArray(chatData?.messages) ? chatData.messages : null;
+        if (direct && direct.length) return direct;
+
+        const history = chatData?.history;
+        const map = history?.messages;
+        const currentId = history?.currentId;
+        if (!map || !currentId) return [];
+
+        const out = [];
+        const visited = new Set();
+        let id = currentId;
+        while (id && map[id] && !visited.has(id)) {
+          const msg = map[id];
+          out.push(msg);
+          visited.add(id);
+          id = msg.parentId;
+        }
+        return out.reverse();
+      }
+
+      function buildContextFromWebuiChat(chatResponse) {
+        const chatData = chatResponse?.chat;
+        const title = typeof chatResponse?.title === "string" ? chatResponse.title.trim() : "";
+        const ordered = orderedMessagesFromChatData(chatData);
+
+        const MAX_CHARS = 25000;
+        const MAX_MESSAGES = 60;
+
+        const lines = [];
+        let total = 0;
+
+        for (let i = ordered.length - 1; i >= 0; i -= 1) {
+          const m = ordered[i];
+          const role = m?.role;
+          if (role !== "user" && role !== "assistant") continue;
+
+          const text = extractWebuiMessageText(m);
+          const trimmed = typeof text === "string" ? text.trim() : String(text || "").trim();
+          if (!trimmed) continue;
+
+          const label = role === "assistant" ? "Assistant" : "You";
+          const block = `${label}: ${trimmed}`;
+
+          if (lines.length >= MAX_MESSAGES) break;
+          if (total + block.length + 2 > MAX_CHARS) break;
+          lines.push(block);
+          total += block.length + 2;
+        }
+
+        lines.reverse();
+
+        const header = title ? `Chat: ${title}\n\n` : "";
+        return header + lines.join("\n\n");
+      }
+
+      async function fetchWebuiChat(chatId) {
+        const token = localStorage.token;
+        if (!token) throw new Error("Missing localStorage.token (open the main app first)");
+
+        const safeId = encodeURIComponent(String(chatId || "").trim());
+        const res = await fetch(`/api/v1/chats/${safeId}`, {
+          method: "GET",
+          headers: {
+            Accept: "application/json",
+            "Content-Type": "application/json",
+            authorization: `Bearer ${token}`,
+          },
+        });
+
+        let body = null;
+        try {
+          body = await res.json();
+        } catch {}
+
+        if (!res.ok) {
+          const msg = body?.detail || body?.message || `HTTP ${res.status}`;
+          throw new Error(msg);
+        }
+
+        return body;
+      }
+
+      async function loadWebuiChatIntoContext(chatId, roomName) {
+        const trimmedChatId = String(chatId || "").trim();
+        const trimmedRoom = String(roomName || "").trim();
+        if (!trimmedChatId) return;
+        if (!trimmedRoom) return;
+
+        info("Loading WebUI chat into context…", { chat_id: trimmedChatId, room: trimmedRoom });
+
+        const body = await fetchWebuiChat(trimmedChatId);
+        const context = buildContextFromWebuiChat(body);
+
+        if (contextTextInput) {
+          contextTextInput.value = context;
+        }
+
+        try {
+          persistSavedChat(trimmedRoom, trimmedChatId);
+        } catch {}
+        try {
+          persistContext(trimmedRoom);
+        } catch {}
+
+        info("Chat context loaded", { chars: context.length });
+      }
+
+      async function maybeAutoSendContext() {
+        if (!autoSendContextOnConnect || autoSendContextDidRun) return;
+        const text = (contextTextInput?.value || "").trim();
+        if (!text) return;
+
+        autoSendContextDidRun = true;
+        info("Auto-sending context…", { chars: text.length });
+        await sendContext();
       }
 
       function log(level, msg, data) {
@@ -1000,19 +1349,50 @@
 	        return v;
 	      }
 
-	      // Support pre-filling via URL params, e.g. /livekit/?voice=<cartesia_voice_id>
+	      // Support pre-filling via URL params, e.g. /livekit/?room=owui-voice-...&chat_id=<webui_chat_id>&voice=<cartesia_voice_id>
 	      try {
 	        const urlParams = new URLSearchParams(window.location.search);
+
+	        const roomParam = (urlParams.get("room") || urlParams.get("r") || "").trim();
+	        if (roomParam) {
+	          roomInput.value = roomParam;
+	          try {
+	            if (roomParam.startsWith("owui-voice-")) localStorage.setItem(ROOM_KEY, roomParam);
+	          } catch {}
+	          loadTranscript(roomParam);
+	          loadContext(roomParam);
+	        }
+
 	        const voiceParam = (urlParams.get("voice") || urlParams.get("tts_voice") || "").trim();
 	        if (voiceParam) {
 	          ttsVoiceInput.value = voiceParam;
 	        }
+
 	        const llmParamRaw = (urlParams.get("llm_model") || urlParams.get("llm") || "").trim();
 	        const llmParam = normalizeLlmModelParam(llmParamRaw);
 	        if (llmParam && llmModelSelect) {
 	          llmModelSelect.value = llmParam;
 	        }
-	      } catch {}
+
+	        const chatParam = (urlParams.get("chat_id") || urlParams.get("chat") || "").trim();
+	        if (chatParam) {
+	          prefillChatId = chatParam;
+
+	          const autoParam = (urlParams.get("autosend") || urlParams.get("auto_send_context") || "").trim().toLowerCase();
+	          autoSendContextOnConnect = autoParam
+	            ? !["0", "false", "no", "off"].includes(autoParam)
+	            : true;
+
+	          const resolvedRoom = roomParam || roomInput.value.trim();
+	          if (resolvedRoom) {
+	            loadWebuiChatIntoContext(chatParam, resolvedRoom).catch((e) => {
+	              warn("Failed to load WebUI chat context", toPlainError(e) ?? e);
+	            });
+	          }
+	        }
+	      } catch (e) {
+	        warn("URL param parsing failed", toPlainError(e) ?? e);
+	      }
 
       async function mintToken(roomName) {
         const token = localStorage.getItem("token");
@@ -1540,6 +1920,11 @@
 
           info("Connected");
           setConnectedUI(true);
+          try {
+            await maybeAutoSendContext();
+          } catch (e) {
+            error("Auto-send context failed", toPlainError(e) ?? e);
+          }
         } catch (e) {
           error("Connect failed", toPlainError(e) ?? e);
           connectBtn.disabled = false;
@@ -1694,6 +2079,27 @@
           warn("Copy failed", toPlainError(e) ?? e);
         }
       });
+
+      if (openWebuiChatBtn) {
+        openWebuiChatBtn.addEventListener("click", () => {
+          const chatId = openWebuiChatBtn.dataset.chatId || savedChatId;
+          if (!chatId) return;
+          window.open(`/c/${chatId}`, "_blank", "noopener,noreferrer");
+        });
+      }
+
+      if (saveToWebuiBtn) {
+        saveToWebuiBtn.addEventListener("click", async () => {
+          saveToWebuiBtn.disabled = true;
+          try {
+            await saveTranscriptToWebui();
+          } catch (e) {
+            error("Save to WebUI failed", toPlainError(e) ?? e);
+          } finally {
+            saveToWebuiBtn.disabled = false;
+          }
+        });
+      }
 
       dumpStateBtn.addEventListener("click", () => dumpState());
 

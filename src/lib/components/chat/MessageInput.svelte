@@ -90,6 +90,7 @@
 	import { goto } from '$app/navigation';
 	import InputModal from '../common/InputModal.svelte';
 	import Expand from '../icons/Expand.svelte';
+	import SendToLiveKit from '$lib/components/pepper/SendToLiveKit.svelte';
 
 	const i18n = getContext('i18n');
 
@@ -1776,6 +1777,12 @@
 													</svg>
 												</button>
 											</Tooltip>
+										{/if}
+
+										{#if $_user?.role === 'admin' || ($_user?.permissions?.chat?.call ?? true)}
+											<SendToLiveKit
+												selectedModelId={atSelectedModel ? atSelectedModel.id : selectedModels?.[0]}
+											/>
 										{/if}
 
 										{#if prompt === '' && files.length === 0 && ($_user?.role === 'admin' || ($_user?.permissions?.chat?.call ?? true))}
