@@ -7,7 +7,7 @@ package-mode = false
 
 [tool.poetry.dependencies]
 python = ">=3.11,<3.13"
-open-webui = { path = "vendor/open_webui-0.6.43+pepper.2-py3-none-any.whl" }
+open-webui = { path = "vendor/open_webui-0.7.2+pepper.1-py3-none-any.whl" }
 psycopg2-binary = "^2.9.11"
 firecrawl-py = "0.0.16"
 livekit-agents = {version = "~1.3.0", extras = ["cartesia", "openai", "turn-detector"]}
