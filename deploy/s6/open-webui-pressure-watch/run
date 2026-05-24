@@ -1,0 +1,12 @@
+#!/bin/sh
+set -eu
+
+cd /var/www/open-webui
+
+export HOME=/home/arch
+export TMPDIR=/home/arch/tmp/open-webui-pressure-watch-runtime
+
+mkdir -p "$TMPDIR"
+
+exec /usr/bin/s6-setuidgid pepper \
+  /var/www/open-webui/deploy/watch_memory_pressure.sh
