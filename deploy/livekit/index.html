@@ -76,14 +76,21 @@
       button.secondary {
         background: #334155;
       }
-      button:disabled {
-        opacity: 0.6;
-        cursor: not-allowed;
-      }
-      pre {
-        background: #0b1220;
-        border: 1px solid #1f2937;
-        border-radius: 8px;
+	      button:disabled {
+	        opacity: 0.6;
+	        cursor: not-allowed;
+	      }
+	      a {
+	        color: #93c5fd;
+	        text-decoration: none;
+	      }
+	      a:hover {
+	        text-decoration: underline;
+	      }
+	      pre {
+	        background: #0b1220;
+	        border: 1px solid #1f2937;
+	        border-radius: 8px;
         padding: 12px;
         overflow: auto;
         max-height: 320px;
@@ -143,24 +150,26 @@
   </head>
   <body>
     <div class="wrap">
-	      <h1>LiveKit Voice (PoC) <span class="pill mono">v2026-01-07</span></h1>
+      <h1>LiveKit Voice (PoC) <span class="pill mono">v2026-01-27.1</span></h1>
       <p class="hint">
         Uses your Open WebUI login token (<code>localStorage.token</code>) to mint a
         short-lived LiveKit access token via <code>/token</code>.
       </p>
 
-	      <div class="card">
-	        <div class="row">
-	          <label>
-	            Room
-	            <input id="room" placeholder="owui-voice-…" />
-	          </label>
-	          <button id="connect">Connect</button>
-	          <button id="disconnect" class="secondary" disabled>Disconnect</button>
-	          <button id="apply" class="secondary" disabled>Apply (restart agent)</button>
-	        </div>
-	        <p class="hint" style="margin: 10px 0 0 0">
-	          Change settings any time; click <span class="mono">Apply</span> to update the agent without disconnecting.
+		      <div class="card">
+		        <div class="row">
+		          <label>
+		            Room
+		            <input id="room" placeholder="owui-voice-…" />
+		          </label>
+		          <button id="connect">Connect</button>
+		          <button id="disconnect" class="secondary" disabled>Disconnect</button>
+		          <button id="toggle_mic" class="secondary" disabled>Pause Mic</button>
+		          <button id="enable_audio" class="secondary" disabled>Enable Audio</button>
+		          <button id="apply" class="secondary" disabled>Apply (restart agent)</button>
+		        </div>
+		        <p class="hint" style="margin: 10px 0 0 0">
+		          Change settings any time; click <span class="mono">Apply</span> to update the agent without disconnecting.
 	          (The agent reads room settings on start.)
 	        </p>
 
@@ -214,7 +223,12 @@
         <div class="row">
           <label style="flex: 1 1 520px">
             Cartesia Voice (ID or name)
-            <input id="tts_voice" placeholder="(blank = server default)" />
+            <select id="tts_voice">
+              <option value="">(blank = server default)</option>
+              <option value="6713ebae-c95c-4679-a298-e888425d5310">6713ebae-c95c-4679-a298-e888425d5310</option>
+              <option value="6e444892-1f65-4b37-8ca7-1d78723d3e43">6e444892-1f65-4b37-8ca7-1d78723d3e43</option>
+              <option value="aa2f2033-0fc0-454c-8f1e-d26408c2a049">aa2f2033-0fc0-454c-8f1e-d26408c2a049</option>
+            </select>
           </label>
           <label>
             Keep Screen Awake
@@ -225,8 +239,13 @@
         </div>
         <div style="height: 8px"></div>
         <p class="hint">
-          Room names must start with <code>owui-voice-</code>. This field is <em>not</em> the
+          Room names must start with <code>owui-voice-</code> and use only
+          <code>a-z</code>, <code>A-Z</code>, <code>0-9</code>, <code>_</code>, or <code>-</code>. This field is <em>not</em> the
           Cartesia voice ID.
+        </p>
+        <p class="hint">
+          Android tip: if you can talk but can’t hear the agent, tap <span class="mono">Enable Audio</span>.
+          You can also force the output path via <span class="mono">?output=element</span> or <span class="mono">?output=webaudio</span>.
         </p>
         <p class="hint">
           If you’re not logged into Open WebUI in this browser, open the main app first
@@ -376,15 +395,32 @@
       <p class="hint" id="transcript_hint">
         Saved in <code>localStorage</code> (per-room, per-device). Clear it any time.
       </p>
-      <div class="row log-controls">
-        <button id="copy_transcript" class="secondary">Copy</button>
-        <button id="clear_transcript" class="secondary">Clear</button>
-        <button id="save_to_webui" class="primary">Save to WebUI</button>
-        <button id="open_webui_chat" class="secondary" disabled>Open Chat</button>
-      </div>
-      <pre id="transcript"></pre>
+	      <div class="row log-controls">
+	        <button id="copy_transcript" class="secondary">Copy</button>
+	        <button id="clear_transcript" class="secondary">Clear</button>
+	        <button id="save_to_webui" class="primary">Sync to WebUI</button>
+	        <button id="save_new_webui" class="secondary">Save New</button>
+	        <button id="open_webui_chat" class="secondary" disabled>Open Chat</button>
+	      </div>
+	      <details id="webui_chats_panel" style="margin: 0 0 10px 0">
+	        <summary>Saved voice chats (server)</summary>
+	        <p class="hint" style="margin: 10px 0 10px 0">
+	          Lists chats stored in Open WebUI tagged <code>livekit</code>. Use <span class="mono">Continue</span> to load
+	          the chat into Context so the agent can pick up where you left off.
+	        </p>
+	        <div class="row log-controls">
+	          <button id="refresh_webui_chats" class="secondary">Refresh</button>
+	          <button id="unlink_webui_chat" class="secondary" disabled>Unlink Current</button>
+	        </div>
+	        <div id="webui_chats_status" class="hint" style="margin: 0 0 10px 0"></div>
+	        <div id="webui_chats_list"></div>
+	      </details>
+	      <pre id="transcript"></pre>
 
       <h2>Logs</h2>
+      <p class="hint" style="margin: 0 0 10px 0">
+        Tip: enable <span class="mono">Server Logs</span> to stream logs to the portal backend (includes transcripts).
+      </p>
       <div class="row log-controls">
         <label>
           Verbose Logs
@@ -398,6 +434,12 @@
             <input id="autoscroll" type="checkbox" />
           </div>
         </label>
+        <label>
+          Server Logs
+          <div>
+            <input id="server_logs" type="checkbox" />
+          </div>
+        </label>
         <button id="dump_state" class="secondary" disabled>Dump State</button>
         <button id="copy_logs" class="secondary">Copy</button>
         <button id="clear_logs" class="secondary">Clear</button>
@@ -407,31 +449,39 @@
       <div id="audio"></div>
     </div>
 
-	    <script src="https://cdn.jsdelivr.net/npm/livekit-client/dist/livekit-client.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/livekit-client@1/dist/livekit-client.umd.min.js?v=2026-01-27.1"></script>
 	    <script>
-	      const PAGE_VERSION = "2026-01-13";
+      const PAGE_VERSION = "2026-01-27.1";
 	      if ("serviceWorker" in navigator) {
 	        navigator.serviceWorker.register("sw.js", { scope: "./" }).catch(() => {});
 	      }
 	      const transcriptEl = document.getElementById("transcript");
-      const transcriptHintEl = document.getElementById("transcript_hint");
-      const copyTranscriptBtn = document.getElementById("copy_transcript");
-      const clearTranscriptBtn = document.getElementById("clear_transcript");
-      const saveToWebuiBtn = document.getElementById("save_to_webui");
-      const openWebuiChatBtn = document.getElementById("open_webui_chat");
+	      const transcriptHintEl = document.getElementById("transcript_hint");
+	      const copyTranscriptBtn = document.getElementById("copy_transcript");
+	      const clearTranscriptBtn = document.getElementById("clear_transcript");
+	      const saveToWebuiBtn = document.getElementById("save_to_webui");
+	      const saveNewWebuiBtn = document.getElementById("save_new_webui");
+	      const openWebuiChatBtn = document.getElementById("open_webui_chat");
+	      const refreshWebuiChatsBtn = document.getElementById("refresh_webui_chats");
+	      const unlinkWebuiChatBtn = document.getElementById("unlink_webui_chat");
+	      const webuiChatsStatusEl = document.getElementById("webui_chats_status");
+	      const webuiChatsListEl = document.getElementById("webui_chats_list");
 
       const logEl = document.getElementById("log");
       const roomInput = document.getElementById("room");
       const connectBtn = document.getElementById("connect");
       const disconnectBtn = document.getElementById("disconnect");
+      const toggleMicBtn = document.getElementById("toggle_mic");
+      const enableAudioBtn = document.getElementById("enable_audio");
       const applyBtn = document.getElementById("apply");
-      const audioContainer = document.getElementById("audio");
-      const verboseLogsInput = document.getElementById("verbose_logs");
-      const autoscrollInput = document.getElementById("autoscroll");
-      const dumpStateBtn = document.getElementById("dump_state");
-      const clearLogsBtn = document.getElementById("clear_logs");
-      const copyLogsBtn = document.getElementById("copy_logs");
-      const statusEl = document.getElementById("status");
+	      const audioContainer = document.getElementById("audio");
+	      const verboseLogsInput = document.getElementById("verbose_logs");
+	      const autoscrollInput = document.getElementById("autoscroll");
+        const serverLogsInput = document.getElementById("server_logs");
+	      const dumpStateBtn = document.getElementById("dump_state");
+	      const clearLogsBtn = document.getElementById("clear_logs");
+	      const copyLogsBtn = document.getElementById("copy_logs");
+	      const statusEl = document.getElementById("status");
 
 	      const turnDetectionSelect = document.getElementById("turn_detection");
 	      const llmModelSelect = document.getElementById("llm_model");
@@ -448,27 +498,140 @@
       const clearContextBtn = document.getElementById("clear_context");
 
       const SETTINGS_KEY = "owui_livekit_voice_settings";
-      const TRANSCRIPT_KEY_PREFIX = "owui_livekit_voice_transcript:";
-      const CONTEXT_KEY_PREFIX = "owui_livekit_voice_context:";
-      const SAVED_CHAT_KEY_PREFIX = "owui_livekit_voice_saved_chat:";
-      const MAX_TRANSCRIPT_ITEMS = 500;
+	      const TRANSCRIPT_KEY_PREFIX = "owui_livekit_voice_transcript:";
+	      const CONTEXT_KEY_PREFIX = "owui_livekit_voice_context:";
+	      const SAVED_CHAT_KEY_PREFIX = "owui_livekit_voice_saved_chat:";
+	      const MAX_TRANSCRIPT_ITEMS = 500;
+	      const LIVEKIT_CHAT_TAG = "livekit";
 
       const MAX_LOG_LINES = 2000;
       const logLines = [];
-      let lastAgentState = null;
-      let lastUserState = null;
+        const CLIENT_ID_KEY = "owui_livekit_voice_client_id";
+        const CONNECT_STATE_KEY = "owui_livekit_voice_connect_state";
+        const CONNECT_STATE_MAX_AGE_MS = 2 * 60 * 1000;
+        const CONNECT_TIMEOUT_MS = 15000;
+        let clientId = null;
+        try {
+          clientId = String(sessionStorage.getItem(CLIENT_ID_KEY) || "").trim();
+        } catch {}
+        if (!clientId) {
+          clientId = `${Date.now().toString(16)}${Math.random().toString(16).slice(2)}`.slice(0, 32);
+          try {
+            sessionStorage.setItem(CLIENT_ID_KEY, clientId);
+          } catch {}
+        }
+        const REMOTE_LOGS_ENDPOINT = "log";
+        const REMOTE_LOGS_MAX_QUEUE = 200;
+        const REMOTE_LOGS_MAX_BATCH = 40;
+        const REMOTE_LOGS_FLUSH_MS = 1500;
+        const REMOTE_LOGS_BACKOFF_MS = 5000;
+        let remoteLogQueue = [];
+        let remoteLogTimer = null;
+        let remoteLogSending = false;
+        let remoteLogBackoffUntil = 0;
+	      let lastAgentState = null;
+	      let lastUserState = null;
+	      let audioNeedsUserGesture = false;
+	      let remoteAudioEl = null;
+      let remoteAudioStream = null;
+      let remoteAudioContext = null;
+      let remoteAudioSilentTrack = null;
+      let remoteAudioSilentNodes = null;
+      const remoteAudioTracks = new Map(); // id -> MediaStreamTrack
+      const remoteWebAudioSources = new Map(); // id -> { source, stream }
+      let remoteWebAudioGain = null;
+      let remoteWebAudioGainConnected = false;
+      const UA = String(navigator.userAgent || "");
+      const IS_ANDROID = /Android/i.test(UA);
+      const DEFAULT_OUTPUT_MODE = "element";
+      let outputMode = DEFAULT_OUTPUT_MODE;
+      let outputModeLocked = false;
+      try {
+        const qs = new URLSearchParams(location.search);
+        const q = (qs.get("output") || "").toLowerCase();
+        if (q === "webaudio" || q === "element") {
+          outputMode = q;
+          outputModeLocked = true;
+        }
+      } catch {}
+      if (!outputModeLocked) {
+        try {
+          const saved = String(localStorage.getItem("owui_livekit_voice_output_mode") || "").toLowerCase();
+          if (saved === "webaudio" || saved === "element") outputMode = saved;
+        } catch {}
+      }
+      // Android audio output is notably inconsistent across devices/OS/browser versions.
+      // Default to the <audio> element path unless WebAudio is explicitly requested via ?output=webaudio.
+      if (IS_ANDROID && !outputModeLocked && outputMode === "webaudio") {
+        outputMode = "element";
+        try {
+          localStorage.setItem("owui_livekit_voice_output_mode", outputMode);
+        } catch {}
+      }
 
 	      let transcriptItems = [];
 	      let transcriptRoom = null;
+      const USER_TRANSCRIPT_REWRITE_WINDOW_MS = 12000;
         let savedChatId = null;
         let prefillChatId = null;
-        let autoSendContextOnConnect = false;
-        let autoSendContextDidRun = false;
+      let autoSendContextOnConnect = false;
+      let autoSendContextDidRun = false;
+      let micPaused = false;
+
+	      // Mobile autoplay is inconsistent across browsers/versions; try to unlock on the earliest user gesture.
+	      try {
+	        const armUnlock = (el, label, opts = null) => {
+	          if (!el || typeof el.addEventListener !== "function") return;
+	          el.addEventListener("pointerdown", () => unlockRemoteAudio(`${label}:pointerdown`, opts), { passive: true });
+	          el.addEventListener("touchstart", () => unlockRemoteAudio(`${label}:touchstart`, opts), { passive: true });
+	        };
+	        armUnlock(connectBtn, "connect", { forceSilent: true });
+	        armUnlock(enableAudioBtn, "enable_audio");
+	        // Apply is already a user gesture; avoid adding the silent track until the click handler runs.
+	        armUnlock(applyBtn, "apply");
+
+	        const armDocUnlock = (eventName) => {
+	          document.addEventListener(
+	            eventName,
+	            () => {
+	              if (!lkRoom) return;
+	              if (!audioNeedsUserGesture && remoteAudioContext?.state !== "suspended") return;
+	              unlockRemoteAudio(`document:${eventName}`, { forceSilent: true });
+	            },
+	            { passive: true }
+	          );
+	        };
+	        armDocUnlock("pointerdown");
+	        armDocUnlock("touchstart");
+	      } catch {}
 
 	      const CONTROL_DATA_TOPIC = "owui.voice.control";
 	      const MAX_CONTROL_TEXT_BYTES = 12000; // conservative; LiveKit payload limits vary by SDK/version
 
-	      function toPlainError(e) {
+        function ensureSelectOption(selectEl, value, label) {
+          if (!selectEl || selectEl.tagName !== "SELECT") return;
+          const v = String(value || "").trim();
+          if (!v) return;
+          for (const opt of Array.from(selectEl.options || [])) {
+            if (opt.value === v) return;
+          }
+          try {
+            const opt = document.createElement("option");
+            opt.value = v;
+            opt.textContent = label || v;
+            const insertBefore = selectEl.options?.[1] || null; // keep "(blank = server default)" first
+            selectEl.insertBefore(opt, insertBefore);
+          } catch {}
+        }
+
+        function setTtsVoice(value) {
+          if (!ttsVoiceInput) return;
+          const v = String(value || "").trim();
+          ensureSelectOption(ttsVoiceInput, v, `${v} (custom)`);
+          ttsVoiceInput.value = v;
+        }
+
+      function toPlainError(e) {
 	        if (!e) return null;
 	        if (e instanceof Error) {
 	          return { name: e.name, message: e.message, stack: e.stack };
@@ -566,21 +729,70 @@
         return `${CONTEXT_KEY_PREFIX}${roomName}`;
       }
 
+      function normalizeTranscriptText(value) {
+        return String(value || "")
+          .trim()
+          .replace(/\s+/g, " ")
+          .toLowerCase();
+      }
+
+      function transcriptTs(value) {
+        const ts = Number(value?.ts || 0);
+        return Number.isFinite(ts) && ts > 0 ? ts : 0;
+      }
+
+      function sortTranscriptItems() {
+        transcriptItems.sort((left, right) => transcriptTs(left) - transcriptTs(right));
+      }
+
+      function hasAssistantBetween(startTs, endTs) {
+        return transcriptItems.some((item) => {
+          const itemTs = transcriptTs(item);
+          return item?.role === "assistant" && itemTs > startTs && itemTs <= endTs;
+        });
+      }
+
+      function findUserTranscriptRewriteIndex(text, ts) {
+        const normalized = normalizeTranscriptText(text);
+        if (!normalized) return -1;
+
+        const eventTs = Number.isFinite(ts) && ts > 0 ? ts : Date.now();
+        for (let index = transcriptItems.length - 1; index >= 0; index -= 1) {
+          const item = transcriptItems[index];
+          if (!item || item.role !== "user") continue;
+
+          const itemTs = transcriptTs(item);
+          if (itemTs > eventTs) continue;
+          if (eventTs - itemTs > USER_TRANSCRIPT_REWRITE_WINDOW_MS) break;
+          if (hasAssistantBetween(itemTs, eventTs)) return -1;
+
+          const prior = normalizeTranscriptText(item.text);
+          if (!prior) continue;
+          if (prior === normalized || normalized.startsWith(prior) || prior.startsWith(normalized)) {
+            return index;
+          }
+          return -1;
+        }
+        return -1;
+      }
+
       function savedChatStorageKey(roomName) {
         return `${SAVED_CHAT_KEY_PREFIX}${roomName}`;
       }
 
-      function renderSavedChat() {
-        if (!openWebuiChatBtn) return;
-
-        if (savedChatId) {
-          openWebuiChatBtn.disabled = false;
-          openWebuiChatBtn.dataset.chatId = savedChatId;
-        } else {
-          openWebuiChatBtn.disabled = true;
-          delete openWebuiChatBtn.dataset.chatId;
-        }
-      }
+	      function renderSavedChat() {
+	        if (openWebuiChatBtn) {
+	          if (savedChatId) {
+	            openWebuiChatBtn.disabled = false;
+	            openWebuiChatBtn.dataset.chatId = savedChatId;
+	          } else {
+	            openWebuiChatBtn.disabled = true;
+	            delete openWebuiChatBtn.dataset.chatId;
+	          }
+	        }
+	        if (unlinkWebuiChatBtn) unlinkWebuiChatBtn.disabled = !savedChatId;
+	        if (saveToWebuiBtn) saveToWebuiBtn.textContent = savedChatId ? "Update WebUI" : "Sync to WebUI";
+	      }
 
       function loadSavedChat(roomName) {
         savedChatId = null;
@@ -642,6 +854,7 @@
 
       function renderTranscript() {
         if (!transcriptEl) return;
+        sortTranscriptItems();
 
         try {
           if (transcriptHintEl) {
@@ -670,12 +883,14 @@
           const parsed = raw ? JSON.parse(raw) : [];
           if (Array.isArray(parsed)) transcriptItems = parsed;
         } catch {}
+        sortTranscriptItems();
 
         renderTranscript();
       }
 
       function persistTranscript() {
         if (!transcriptRoom) return;
+        sortTranscriptItems();
         try {
           localStorage.setItem(
             transcriptStorageKey(transcriptRoom),
@@ -693,12 +908,34 @@
 
         const MAX_LEN = 5000;
         const clipped = t.length > MAX_LEN ? `${t.slice(0, MAX_LEN)}…` : t;
+        const entryTs =
+          typeof meta?.ts === "number" && Number.isFinite(meta.ts) && meta.ts > 0
+            ? meta.ts
+            : Date.now();
+
+        sortTranscriptItems();
+
+        if (role === "user") {
+          const rewriteIndex = findUserTranscriptRewriteIndex(clipped, entryTs);
+          if (rewriteIndex >= 0) {
+            transcriptItems[rewriteIndex] = {
+              ...transcriptItems[rewriteIndex],
+              ...meta,
+              role,
+              text: clipped,
+              ts: entryTs,
+            };
+            persistTranscript();
+            renderTranscript();
+            return;
+          }
+        }
 
         const last = transcriptItems.length ? transcriptItems[transcriptItems.length - 1] : null;
         if (last && last.role === role && String(last.text || "") === clipped) return;
 
         transcriptItems.push({
-          ts: Date.now(),
+          ts: entryTs,
           role,
           text: clipped,
           ...meta,
@@ -706,6 +943,7 @@
         if (transcriptItems.length > MAX_TRANSCRIPT_ITEMS) {
           transcriptItems.splice(0, transcriptItems.length - MAX_TRANSCRIPT_ITEMS);
         }
+        sortTranscriptItems();
         persistTranscript();
         renderTranscript();
       }
@@ -793,15 +1031,87 @@
           currentId = id;
         }
 
-        history.currentId = currentId;
-        return { history, messages: list };
-      }
+	        history.currentId = currentId;
+	        return { history, messages: list };
+	      }
 
-      async function saveTranscriptToWebui() {
-        const token = localStorage.token;
-        if (!token) {
-          throw new Error("Missing localStorage.token (open the main app first)");
-        }
+	      function getOpenWebUiToken(requiredAction = "continue") {
+	        let token = "";
+	        try {
+	          token = String(localStorage.getItem("token") || localStorage.token || "").trim();
+	        } catch {}
+	        if (!token) {
+	          throw new Error(
+	            `Missing Open WebUI login token in this browser. Open the main Open WebUI app, sign in, then return here and try again to ${requiredAction}.`
+	          );
+	        }
+	        return token;
+	      }
+
+	      async function webuiApiJson(path, { method = "GET", body = null } = {}) {
+	        const token = getOpenWebUiToken("call the Open WebUI API");
+
+	        const init = {
+	          method,
+	          headers: {
+	            Accept: "application/json",
+	            "Content-Type": "application/json",
+	            authorization: `Bearer ${token}`,
+	          },
+	        };
+	        if (body !== null) init.body = JSON.stringify(body);
+
+	        const res = await fetch(path, init);
+
+	        let data = null;
+	        try {
+	          data = await res.json();
+	        } catch {}
+
+	        if (!res.ok) {
+	          const msg = data?.detail || data?.message || `HTTP ${res.status}`;
+	          throw new Error(msg);
+	        }
+	        return data;
+	      }
+
+	      async function webuiAddChatTag(chatId, tagName) {
+	        const safeId = encodeURIComponent(String(chatId || "").trim());
+	        const tag = String(tagName || "").trim();
+	        if (!safeId || !tag) return null;
+	        try {
+	          return await webuiApiJson(`/api/v1/chats/${safeId}/tags`, { method: "POST", body: { name: tag } });
+	        } catch (e) {
+	          warn("Failed to tag WebUI chat", { chat_id: chatId, tag, error: toPlainError(e) ?? e });
+	          return null;
+	        }
+	      }
+
+	      async function webuiListChatsByTag(tagName, { skip = 0, limit = 50 } = {}) {
+	        const tag = String(tagName || "").trim();
+	        if (!tag) return [];
+	        return webuiApiJson("/api/v1/chats/tags", {
+	          method: "POST",
+	          body: { name: tag, skip, limit },
+	        });
+	      }
+
+	      async function webuiSearchChats(text, { page = 1 } = {}) {
+	        const q = String(text || "").trim();
+	        if (!q) return [];
+	        const params = new URLSearchParams({ text: q, page: String(page || 1) });
+	        return webuiApiJson(`/api/v1/chats/search?${params.toString()}`, { method: "GET" });
+	      }
+
+	      function epochToIso(epochSeconds) {
+	        const n = Number(epochSeconds || 0);
+	        if (!Number.isFinite(n) || n <= 0) return "";
+	        const ms = n > 1e12 ? n : n * 1000;
+	        return new Date(ms).toISOString().slice(0, 19).replace("T", " ");
+	      }
+
+	      async function saveTranscriptToWebui() {
+	        const token = getOpenWebUiToken("save the transcript to Open WebUI");
 
         const roomName = transcriptRoom || roomInput.value.trim();
         const trimmedRoom = roomName || "owui-voice";
@@ -817,44 +1127,29 @@
         const title = `LiveKit Voice — ${trimmedRoom} — ${stamp}`;
 
         const { history, messages } = buildWebuiHistoryFromMessages(merged, modelId);
-        const chat = {
-          title,
-          models: [modelId],
-          params: {},
-          history,
+	        const chat = {
+	          title,
+	          models: [modelId],
+	          params: {},
+	          history,
           messages,
           tags: ["livekit"],
           timestamp: Date.now(),
-          files: [],
-        };
+	          files: [],
+	        };
 
-        const res = await fetch("/api/v1/chats/new", {
-          method: "POST",
-          headers: {
-            Accept: "application/json",
-            "Content-Type": "application/json",
-            authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify({ chat, folder_id: null }),
-        });
+	        const body = await webuiApiJson("/api/v1/chats/new", {
+	          method: "POST",
+	          body: { chat, folder_id: null },
+	        });
+	        if (!body?.id) throw new Error("Save succeeded, but response had no chat id");
 
-        let body = null;
-        try {
-          body = await res.json();
-        } catch {}
-
-        if (!res.ok) {
-          const msg = body?.detail || body?.message || `HTTP ${res.status}`;
-          throw new Error(msg);
-        }
-
-        if (!body?.id) throw new Error("Save succeeded, but response had no chat id");
-
-        persistSavedChat(trimmedRoom, body.id);
-        renderTranscript();
-        info("Saved transcript to Open WebUI", { chat_id: body.id, url: `/c/${body.id}` });
-        return body.id;
-      }
+	        persistSavedChat(trimmedRoom, body.id);
+	        await webuiAddChatTag(body.id, LIVEKIT_CHAT_TAG);
+	        renderTranscript();
+	        info("Saved transcript to Open WebUI", { chat_id: body.id, url: `/c/${body.id}` });
+	        return body.id;
+	      }
 
       function extractWebuiText(content) {
         if (content == null) return "";
@@ -944,38 +1239,16 @@
         return header + lines.join("\n\n");
       }
 
-      async function fetchWebuiChat(chatId) {
-        const token = localStorage.token;
-        if (!token) throw new Error("Missing localStorage.token (open the main app first)");
+	      async function fetchWebuiChat(chatId) {
+	        const safeId = encodeURIComponent(String(chatId || "").trim());
+	        return webuiApiJson(`/api/v1/chats/${safeId}`, { method: "GET" });
+	      }
 
-        const safeId = encodeURIComponent(String(chatId || "").trim());
-        const res = await fetch(`/api/v1/chats/${safeId}`, {
-          method: "GET",
-          headers: {
-            Accept: "application/json",
-            "Content-Type": "application/json",
-            authorization: `Bearer ${token}`,
-          },
-        });
-
-        let body = null;
-        try {
-          body = await res.json();
-        } catch {}
-
-        if (!res.ok) {
-          const msg = body?.detail || body?.message || `HTTP ${res.status}`;
-          throw new Error(msg);
-        }
-
-        return body;
-      }
-
-      async function loadWebuiChatIntoContext(chatId, roomName) {
-        const trimmedChatId = String(chatId || "").trim();
-        const trimmedRoom = String(roomName || "").trim();
-        if (!trimmedChatId) return;
-        if (!trimmedRoom) return;
+	      async function loadWebuiChatIntoContext(chatId, roomName) {
+	        const trimmedChatId = String(chatId || "").trim();
+	        const trimmedRoom = String(roomName || "").trim();
+	        if (!trimmedChatId) return;
+	        if (!trimmedRoom) return;
 
         info("Loading WebUI chat into context…", { chat_id: trimmedChatId, room: trimmedRoom });
 
@@ -993,30 +1266,357 @@
           persistContext(trimmedRoom);
         } catch {}
 
-        info("Chat context loaded", { chars: context.length });
-      }
+	        info("Chat context loaded", { chars: context.length });
+	      }
 
-      async function maybeAutoSendContext() {
-        if (!autoSendContextOnConnect || autoSendContextDidRun) return;
-        const text = (contextTextInput?.value || "").trim();
-        if (!text) return;
+	      function transcriptItemsFromWebuiChat(chatResponse) {
+	        const chatData = chatResponse?.chat;
+	        const ordered = orderedMessagesFromChatData(chatData);
+	        const out = [];
 
-        autoSendContextDidRun = true;
-        info("Auto-sending context…", { chars: text.length });
-        await sendContext();
-      }
+	        for (const m of ordered) {
+	          const role = m?.role;
+	          if (role !== "user" && role !== "assistant") continue;
+	          const text = extractWebuiMessageText(m);
+	          const trimmed = typeof text === "string" ? text.trim() : String(text || "").trim();
+	          if (!trimmed) continue;
 
-      function log(level, msg, data) {
-        const ts = new Date().toISOString();
-        const prepared = data === undefined ? undefined : isPlainObject(data) ? data : brief(data);
-        const payload = data === undefined ? "" : ` ${safeJson(prepared)}`;
-        logLines.push(`[${ts}] ${level}: ${msg}${payload}`);
-        if (logLines.length > MAX_LOG_LINES) {
-          logLines.splice(0, logLines.length - MAX_LOG_LINES);
+	          const tsRaw = m?.timestamp;
+	          const ts = typeof tsRaw === "number" && Number.isFinite(tsRaw) ? tsRaw : Date.now();
+	          out.push({ ts, role, text: trimmed });
+	        }
+
+	        return out.slice(-MAX_TRANSCRIPT_ITEMS);
+	      }
+
+	      function parseRoomFromWebuiTitle(title) {
+	        const t = String(title || "").trim();
+	        if (!t) return "";
+	        // Our default title format: "LiveKit Voice — <room> — <YYYY-MM-DD HH:MM:SS>"
+	        const m = t.match(/LiveKit Voice\s+—\s+([^—]+?)\s+—/);
+	        const room = (m?.[1] || "").trim();
+	        return room && isValidRoomName(room) ? room : "";
+	      }
+
+	      async function syncTranscriptToWebui({ forceNew = false } = {}) {
+	        const roomName = transcriptRoom || roomInput.value.trim();
+	        const trimmedRoom = roomName || "owui-voice";
+	        const modelId = webuiModelFromLivekitSelection(llmModelSelect?.value);
+
+	        const merged = coalesceTranscriptForWebui(transcriptItems);
+	        if (!merged.length) throw new Error("Transcript is empty");
+
+	        const { history, messages } = buildWebuiHistoryFromMessages(merged, modelId);
+
+	        const baseChat = {
+	          models: [modelId],
+	          params: {},
+	          history,
+	          messages,
+	          tags: [LIVEKIT_CHAT_TAG],
+	          timestamp: Date.now(),
+	          files: [],
+	        };
+
+	        if (!forceNew && savedChatId) {
+	          const safeId = encodeURIComponent(String(savedChatId || "").trim());
+	          if (!safeId) throw new Error("Invalid saved chat id");
+	          info("Syncing transcript to existing WebUI chat…", { chat_id: savedChatId });
+	          await webuiApiJson(`/api/v1/chats/${safeId}`, {
+	            method: "POST",
+	            body: { chat: baseChat, folder_id: null },
+	          });
+	          await webuiAddChatTag(savedChatId, LIVEKIT_CHAT_TAG);
+	          persistSavedChat(trimmedRoom, savedChatId);
+	          renderTranscript();
+	          info("Synced transcript to Open WebUI", { chat_id: savedChatId, url: `/c/${savedChatId}` });
+	          return savedChatId;
+	        }
+
+	        const now = new Date();
+	        const stamp = now.toISOString().slice(0, 19).replace("T", " ");
+	        const title = `LiveKit Voice — ${trimmedRoom} — ${stamp}`;
+
+	        const createChat = { title, ...baseChat };
+	        const body = await webuiApiJson("/api/v1/chats/new", {
+	          method: "POST",
+	          body: { chat: createChat, folder_id: null },
+	        });
+	        if (!body?.id) throw new Error("Save succeeded, but response had no chat id");
+
+	        persistSavedChat(trimmedRoom, body.id);
+	        await webuiAddChatTag(body.id, LIVEKIT_CHAT_TAG);
+	        renderTranscript();
+	        info("Saved transcript to Open WebUI", { chat_id: body.id, url: `/c/${body.id}` });
+	        return body.id;
+	      }
+
+	      async function deleteWebuiChat(chatId) {
+	        const safeId = encodeURIComponent(String(chatId || "").trim());
+	        if (!safeId) throw new Error("Missing chat id");
+	        return webuiApiJson(`/api/v1/chats/${safeId}`, { method: "DELETE" });
+	      }
+
+	      async function renameWebuiChat(chatId, title) {
+	        const safeId = encodeURIComponent(String(chatId || "").trim());
+	        const t = String(title || "").trim();
+	        if (!safeId) throw new Error("Missing chat id");
+	        if (!t) throw new Error("Title is required");
+	        return webuiApiJson(`/api/v1/chats/${safeId}`, {
+	          method: "POST",
+	          body: { chat: { title: t }, folder_id: null },
+	        });
+	      }
+
+	      function renderWebuiChatsList(chats) {
+	        if (!webuiChatsListEl) return;
+	        const items = Array.isArray(chats) ? chats : [];
+	        if (!items.length) {
+	          webuiChatsListEl.innerHTML = `<p class="hint" style="margin: 0">No saved voice chats found.</p>`;
+	          return;
+	        }
+
+	        const escapeHtml = (s) =>
+	          String(s || "")
+	            .replace(/&/g, "&amp;")
+	            .replace(/</g, "&lt;")
+	            .replace(/>/g, "&gt;");
+	        const escapeAttr = (s) => escapeHtml(s).replace(/"/g, "&quot;");
+
+	        const rows = items
+	          .map((c) => {
+	            const id = String(c?.id || "").trim();
+	            const title = String(c?.title || "").trim() || id;
+	            const updated = epochToIso(c?.updated_at) || epochToIso(c?.created_at) || "";
+	            const safeId = escapeAttr(id);
+	            const safeTitle = escapeHtml(title);
+	            const safeTitleAttr = escapeAttr(title);
+	            return `<tr>
+	              <td class="mono">${updated}</td>
+	              <td><a href="/c/${safeId}" target="_blank" rel="noopener noreferrer">${safeTitle}</a></td>
+	              <td>
+	                <button class="secondary" data-action="load" data-chat-id="${safeId}">Load</button>
+	                <button class="secondary" data-action="continue" data-chat-id="${safeId}" data-chat-title="${safeTitleAttr}">Continue</button>
+	                <button class="secondary" data-action="rename" data-chat-id="${safeId}" data-chat-title="${safeTitleAttr}">Rename</button>
+	                <button class="secondary" data-action="delete" data-chat-id="${safeId}">Delete</button>
+	              </td>
+	            </tr>`;
+	          })
+	          .join("");
+
+	        webuiChatsListEl.innerHTML = `<table>
+	          <thead><tr><th style="width: 18%">Updated</th><th>Title</th><th style="width: 32%">Actions</th></tr></thead>
+	          <tbody>${rows}</tbody>
+	        </table>`;
+	      }
+
+	      async function refreshWebuiChats() {
+	        if (webuiChatsStatusEl) webuiChatsStatusEl.textContent = "Loading…";
+	        try {
+	          let chats = await webuiListChatsByTag(LIVEKIT_CHAT_TAG, { skip: 0, limit: 50 });
+	          if (!Array.isArray(chats)) chats = [];
+
+	          // Back-compat: older demos saved chats without tagging. If no tagged chats exist, fall back to a search.
+	          if (!chats.length) {
+	            const fallback = await webuiSearchChats("LiveKit Voice", { page: 1 });
+	            chats = Array.isArray(fallback)
+	              ? fallback.filter((c) => String(c?.title || "").toLowerCase().includes("livekit voice"))
+	              : [];
+	          }
+
+	          chats.sort((a, b) => (Number(b?.updated_at || 0) || 0) - (Number(a?.updated_at || 0) || 0));
+	          renderWebuiChatsList(chats);
+	          if (webuiChatsStatusEl) webuiChatsStatusEl.textContent = `${chats.length} chat(s)`;
+	        } catch (e) {
+	          if (webuiChatsStatusEl) webuiChatsStatusEl.textContent = `Failed: ${toPlainError(e)?.message ?? e}`;
+	          if (webuiChatsListEl) webuiChatsListEl.innerHTML = "";
+	        }
+	      }
+
+	      async function loadWebuiChatForContinue(chatId, chatTitle) {
+	        const currentRoom = roomInput.value.trim();
+	        const roomFromTitle = parseRoomFromWebuiTitle(chatTitle);
+	        const roomName = roomFromTitle || currentRoom;
+		        if (roomFromTitle) {
+		          roomInput.value = roomFromTitle;
+		          persistRoomSelection(roomFromTitle);
+		          loadTranscript(roomFromTitle);
+		          loadContext(roomFromTitle);
+		        }
+
+	        const body = await fetchWebuiChat(chatId);
+	        const items = transcriptItemsFromWebuiChat(body);
+
+	        const effectiveRoom = roomName || transcriptRoom || roomInput.value.trim();
+	        transcriptRoom = effectiveRoom || transcriptRoom;
+	        transcriptItems = items;
+          sortTranscriptItems();
+	        persistTranscript();
+	        renderTranscript();
+
+	        if (effectiveRoom) {
+	          try {
+	            persistSavedChat(effectiveRoom, chatId);
+	          } catch {}
+	        }
+	        await webuiAddChatTag(chatId, LIVEKIT_CHAT_TAG);
+
+	        try {
+	          await loadWebuiChatIntoContext(chatId, effectiveRoom);
+	        } catch (e) {
+	          warn("Failed to load chat into context", toPlainError(e) ?? e);
+	        }
+
+	        autoSendContextOnConnect = true;
+	        autoSendContextDidRun = false;
+
+	        if (lkRoom) {
+	          const connectedRoom = lkRoom.name || roomInput.value.trim();
+	          if (connectedRoom === effectiveRoom) {
+	            try {
+	              await sendContext();
+	            } catch (e) {
+	              warn("Failed to send context while connected", toPlainError(e) ?? e);
+	            }
+	          } else {
+	            warn("Connected to a different room; disconnect first to continue this chat", {
+	              connected_room: connectedRoom,
+	              desired_room: effectiveRoom,
+	            });
+	          }
+	        }
+	      }
+
+	      async function loadWebuiChatForViewing(chatId) {
+	        const currentRoom = roomInput.value.trim();
+	        const body = await fetchWebuiChat(chatId);
+	        const items = transcriptItemsFromWebuiChat(body);
+
+	        const effectiveRoom = currentRoom || transcriptRoom || "owui-voice";
+	        transcriptRoom = effectiveRoom || transcriptRoom;
+	        transcriptItems = items;
+          sortTranscriptItems();
+	        persistTranscript();
+	        renderTranscript();
+
+	        try {
+	          persistSavedChat(effectiveRoom, chatId);
+	        } catch {}
+	        await webuiAddChatTag(chatId, LIVEKIT_CHAT_TAG);
+	      }
+
+	      async function maybeAutoSendContext() {
+	        if (!autoSendContextOnConnect || autoSendContextDidRun) return;
+	        const text = (contextTextInput?.value || "").trim();
+	        if (!text) return;
+
+	        autoSendContextDidRun = true;
+	        info("Auto-sending context…", { chars: text.length });
+	        await sendContext();
+	      }
+
+        function shouldSendRemoteLogs() {
+          return !!serverLogsInput?.checked;
         }
-        logEl.textContent = logLines.join("\n") + "\n";
-        if (autoscrollInput.checked) logEl.scrollTop = logEl.scrollHeight;
-      }
+
+        function scheduleRemoteLogsFlush() {
+          if (remoteLogTimer) return;
+          remoteLogTimer = setTimeout(() => {
+            remoteLogTimer = null;
+            flushRemoteLogs("timer");
+          }, REMOTE_LOGS_FLUSH_MS);
+        }
+
+        function queueRemoteLog(entry) {
+          try {
+            remoteLogQueue.push(entry);
+            if (remoteLogQueue.length > REMOTE_LOGS_MAX_QUEUE) {
+              remoteLogQueue.splice(0, remoteLogQueue.length - REMOTE_LOGS_MAX_QUEUE);
+            }
+          } catch {}
+
+          if (!shouldSendRemoteLogs()) return;
+
+          if (remoteLogQueue.length >= REMOTE_LOGS_MAX_BATCH) {
+            flushRemoteLogs("batch");
+            return;
+          }
+          scheduleRemoteLogsFlush();
+        }
+
+        async function flushRemoteLogs(reason) {
+          try {
+            if (remoteLogSending) return;
+            if (!shouldSendRemoteLogs()) return;
+            if (!remoteLogQueue.length) return;
+            if (Date.now() < remoteLogBackoffUntil) {
+              scheduleRemoteLogsFlush();
+              return;
+            }
+
+            let token = "";
+            try {
+              token = String(localStorage.token || "").trim();
+            } catch {}
+
+            const entries = remoteLogQueue.splice(0, remoteLogQueue.length);
+            remoteLogSending = true;
+            try {
+              const room = String(roomInput?.value || "").trim() || null;
+              const headers = {
+                Accept: "application/json",
+                "Content-Type": "application/json",
+              };
+              if (token) {
+                headers.authorization = `Bearer ${token}`;
+              }
+              const res = await fetch(REMOTE_LOGS_ENDPOINT, {
+                method: "POST",
+                headers,
+                credentials: "same-origin",
+                keepalive: true,
+                body: JSON.stringify({
+                  client_id: clientId,
+                  room,
+                  version: PAGE_VERSION,
+                  user_agent: UA,
+                  output_mode: outputMode,
+                  reason,
+                  entries,
+                }),
+              });
+              if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            } catch (e) {
+              remoteLogBackoffUntil = Date.now() + REMOTE_LOGS_BACKOFF_MS;
+              // Re-queue the dropped batch so a later attempt can send it (bounded by MAX_QUEUE).
+              try {
+                remoteLogQueue = entries.concat(remoteLogQueue);
+                if (remoteLogQueue.length > REMOTE_LOGS_MAX_QUEUE) {
+                  remoteLogQueue.splice(0, remoteLogQueue.length - REMOTE_LOGS_MAX_QUEUE);
+                }
+              } catch {
+                remoteLogQueue = [];
+              }
+            } finally {
+              remoteLogSending = false;
+            }
+          } catch {}
+        }
+
+	      function log(level, msg, data) {
+	        const ts = new Date().toISOString();
+	        const prepared = data === undefined ? undefined : isPlainObject(data) ? data : brief(data);
+	        const payload = data === undefined ? "" : ` ${safeJson(prepared)}`;
+	        logLines.push(`[${ts}] ${level}: ${msg}${payload}`);
+	        if (logLines.length > MAX_LOG_LINES) {
+	          logLines.splice(0, logLines.length - MAX_LOG_LINES);
+	        }
+	        logEl.textContent = logLines.join("\n") + "\n";
+	        if (autoscrollInput.checked) logEl.scrollTop = logEl.scrollHeight;
+          try {
+            queueRemoteLog({ ts, level, msg, data: prepared });
+          } catch {}
+	      }
 
       function info(msg, data) {
         log("INFO", msg, data);
@@ -1032,16 +1632,18 @@
         log("DEBUG", msg, data);
       }
 
-      function setStatus(next) {
-        statusEl.textContent = next;
-      }
+	      function setStatus(next) {
+	        statusEl.textContent = next;
+	      }
 
-      function renderStatus() {
-        const parts = [];
-        if (lastUserState) parts.push(`User: ${lastUserState}`);
-        if (lastAgentState) parts.push(`Agent: ${lastAgentState}`);
-        setStatus(parts.length ? parts.join(" • ") : "");
-      }
+	      function renderStatus() {
+	        const parts = [];
+	        if (lastUserState) parts.push(`User: ${lastUserState}`);
+	        if (lastAgentState) parts.push(`Agent: ${lastAgentState}`);
+	        if (lkRoom) parts.push(`Output: ${outputMode}`);
+	        if (audioNeedsUserGesture) parts.push("Audio: tap Enable Audio (or tap screen)");
+	        setStatus(parts.length ? parts.join(" • ") : "");
+	      }
 
       function decodeDataPayload(payload) {
         if (payload == null) return null;
@@ -1224,26 +1826,58 @@
           .slice(2)}`.slice(0, 36);
       }
 
-      const DEFAULT_ROOM = "owui-voice-c8d92187395538d10f1fd9402";
+      function isValidRoomName(roomName) {
+        const name = String(roomName || "").trim();
+        if (!name.startsWith("owui-voice-")) return false;
+        return /^[a-zA-Z0-9_-]{1,128}$/.test(name);
+      }
+
       const ROOM_KEY = "owui_livekit_voice_room";
+      const ROOM_SAVED_AT_KEY = "owui_livekit_voice_room_saved_at";
+      const ROOM_MAX_AGE_MS = 30 * 60 * 1000;
+      function persistRoomSelection(roomName) {
+        const normalized = String(roomName || "").trim();
+        if (!normalized || !isValidRoomName(normalized)) return;
+        try {
+          localStorage.setItem(ROOM_KEY, normalized);
+          localStorage.setItem(ROOM_SAVED_AT_KEY, String(Date.now()));
+        } catch {}
+      }
+      function assignFreshRoom() {
+        const roomName = randomRoom();
+        roomInput.value = roomName;
+        persistRoomSelection(roomName);
+      }
+      function rotateRoomForNextConnect() {
+        assignFreshRoom();
+        loadTranscript(roomInput.value.trim());
+        loadContext(roomInput.value.trim());
+        persistTranscript();
+      }
       try {
         const savedRoom = (localStorage.getItem(ROOM_KEY) || "").trim();
-        if (savedRoom && savedRoom.startsWith("owui-voice-")) {
+        const savedAt = Number(localStorage.getItem(ROOM_SAVED_AT_KEY) || "0");
+        const isFresh = Number.isFinite(savedAt) && Date.now() - savedAt <= ROOM_MAX_AGE_MS;
+        if (isValidRoomName(savedRoom) && isFresh) {
           roomInput.value = savedRoom;
-        } else if (DEFAULT_ROOM && DEFAULT_ROOM.startsWith("owui-voice-")) {
-          roomInput.value = DEFAULT_ROOM;
         } else {
-          roomInput.value = randomRoom();
+          if (savedRoom) localStorage.removeItem(ROOM_KEY);
+          localStorage.removeItem(ROOM_SAVED_AT_KEY);
+          assignFreshRoom();
         }
       } catch {
-        roomInput.value =
-          DEFAULT_ROOM && DEFAULT_ROOM.startsWith("owui-voice-") ? DEFAULT_ROOM : randomRoom();
+        roomInput.value = randomRoom();
       }
       loadTranscript(roomInput.value.trim());
       loadContext(roomInput.value.trim());
 
       let lkRoom = null;
+      let pendingRoomName = "";
       let wakeLockSentinel = null;
+      let disconnectInitiatedByUser = false;
+      let connectInFlight = false;
+      let connectAttemptSeq = 0;
+      let connectRecoveryPromise = Promise.resolve();
 
       async function acquireWakeLock() {
         if (!("wakeLock" in navigator)) {
@@ -1279,13 +1913,14 @@
 	          min_endpointing_delay: minEndpointingInput.value,
 	          max_endpointing_delay: maxEndpointingInput.value,
 	          min_interruption_duration: minInterruptionDurationInput.value,
-          min_interruption_words: minInterruptionWordsInput.value,
-          tts_voice: ttsVoiceInput.value,
-          keep_awake: keepAwakeInput.checked,
-          verbose_logs: verboseLogsInput.checked,
-          autoscroll: autoscrollInput.checked,
-        };
-      }
+	          min_interruption_words: minInterruptionWordsInput.value,
+	          tts_voice: ttsVoiceInput.value,
+	          keep_awake: keepAwakeInput.checked,
+	          verbose_logs: verboseLogsInput.checked,
+	          autoscroll: autoscrollInput.checked,
+            server_logs: serverLogsInput?.checked ?? false,
+	        };
+	      }
 
       function persistSettings() {
         try {
@@ -1293,20 +1928,21 @@
         } catch {}
       }
 
-		      function loadSettings() {
-			        const defaults = {
-			          llm_model: "glm-4.7",
-			          turn_detection: "ml",
-			          allow_interruptions: true,
-			          min_endpointing_delay: "2",
-			          max_endpointing_delay: "5.0",
-			          min_interruption_duration: "0.7",
-		          min_interruption_words: "2",
-		          tts_voice: "",
-		          keep_awake: true,
-		          verbose_logs: true,
-		          autoscroll: true,
-		        };
+			      function loadSettings() {
+				        const defaults = {
+				          llm_model: "glm-4.7",
+				          turn_detection: "ml",
+				          allow_interruptions: true,
+				          min_endpointing_delay: "2",
+				          max_endpointing_delay: "5.0",
+				          min_interruption_duration: "0.7",
+			          min_interruption_words: "2",
+			          tts_voice: "",
+			          keep_awake: true,
+			          verbose_logs: true,
+			          autoscroll: true,
+                server_logs: false,
+			        };
 
         let saved = null;
         try {
@@ -1321,20 +1957,55 @@
 	        allowInterruptionsInput.checked = !!s.allow_interruptions;
 	        minEndpointingInput.value = s.min_endpointing_delay ?? defaults.min_endpointing_delay;
 	        maxEndpointingInput.value = s.max_endpointing_delay ?? defaults.max_endpointing_delay;
-	        minInterruptionDurationInput.value =
+        minInterruptionDurationInput.value =
           s.min_interruption_duration ?? defaults.min_interruption_duration;
         minInterruptionWordsInput.value = s.min_interruption_words ?? defaults.min_interruption_words;
-        ttsVoiceInput.value = s.tts_voice ?? defaults.tts_voice;
-        keepAwakeInput.checked = s.keep_awake ?? defaults.keep_awake;
-        verboseLogsInput.checked = s.verbose_logs ?? defaults.verbose_logs;
-        autoscrollInput.checked = s.autoscroll ?? defaults.autoscroll;
-      }
+        setTtsVoice(s.tts_voice ?? defaults.tts_voice);
+	        keepAwakeInput.checked = s.keep_awake ?? defaults.keep_awake;
+	        verboseLogsInput.checked = s.verbose_logs ?? defaults.verbose_logs;
+	        autoscrollInput.checked = s.autoscroll ?? defaults.autoscroll;
+          if (serverLogsInput) serverLogsInput.checked = s.server_logs ?? defaults.server_logs;
+	      }
 
-      loadSettings();
+	      loadSettings();
 
-	      info("Client ready", {
-	        version: PAGE_VERSION,
-	        userAgent: navigator.userAgent,
+        // Optional: stream logs to the portal backend for easier debugging on mobile.
+        // Use a query param to force-enable: ?server_logs=1 (or ?logs=server)
+        if (serverLogsInput) {
+          try {
+            const qs = new URLSearchParams(location.search);
+            const v = String(qs.get("server_logs") || qs.get("serverlog") || qs.get("logs") || "").toLowerCase();
+            if (v === "1" || v === "true" || v === "server") {
+              serverLogsInput.checked = true;
+              try {
+                persistSettings();
+              } catch {}
+            }
+          } catch {}
+
+          serverLogsInput.addEventListener("change", () => {
+            try {
+              persistSettings();
+            } catch {}
+            if (serverLogsInput.checked) flushRemoteLogs("enabled");
+          });
+        }
+        window.addEventListener("pagehide", () => {
+          try {
+            const activeRoom = trackedRoomName();
+            if (activeRoom) {
+              requestRoomLeave(activeRoom, { fireAndForget: true, reason: "pagehide" });
+              clearConnectState();
+            }
+          } catch {}
+          flushRemoteLogs("pagehide");
+        });
+
+		      info("Client ready", {
+		        version: PAGE_VERSION,
+		        userAgent: navigator.userAgent,
+		        isAndroid: IS_ANDROID,
+		        outputMode,
 	        wakeLock: "wakeLock" in navigator,
 	        mediaDevices: !!navigator.mediaDevices,
 	      });
@@ -1355,17 +2026,19 @@
 
 	        const roomParam = (urlParams.get("room") || urlParams.get("r") || "").trim();
 	        if (roomParam) {
-	          roomInput.value = roomParam;
-	          try {
-	            if (roomParam.startsWith("owui-voice-")) localStorage.setItem(ROOM_KEY, roomParam);
-	          } catch {}
-	          loadTranscript(roomParam);
-	          loadContext(roomParam);
+            if (isValidRoomName(roomParam)) {
+	            roomInput.value = roomParam;
+	            persistRoomSelection(roomParam);
+	            loadTranscript(roomParam);
+	            loadContext(roomParam);
+            } else {
+              warn("Ignoring invalid room param (must be owui-voice-* and only [a-zA-Z0-9_-])", { room: roomParam });
+            }
 	        }
 
 	        const voiceParam = (urlParams.get("voice") || urlParams.get("tts_voice") || "").trim();
 	        if (voiceParam) {
-	          ttsVoiceInput.value = voiceParam;
+	          setTtsVoice(voiceParam);
 	        }
 
 	        const llmParamRaw = (urlParams.get("llm_model") || urlParams.get("llm") || "").trim();
@@ -1395,8 +2068,7 @@
 	      }
 
       async function mintToken(roomName) {
-        const token = localStorage.getItem("token");
-        if (!token) throw new Error("Missing Open WebUI token in localStorage.token");
+        const token = getOpenWebUiToken("connect to the LiveKit demo");
 
 	        const settings = getSettings();
 	        const params = new URLSearchParams({ room: roomName });
@@ -1420,8 +2092,13 @@
         }
 
         debug("Token mint request", { path: "/token", query: params.toString() });
+        const headers = {};
+        if (token) {
+          headers.Authorization = `Bearer ${token}`;
+        }
         const res = await fetch(`token?${params.toString()}`, {
-          headers: { Authorization: `Bearer ${token}` },
+          headers,
+          credentials: "same-origin",
         });
         if (!res.ok) {
           let detail = "";
@@ -1443,8 +2120,7 @@
       }
 
 	      async function applyAgentSettings(roomName, { force = false } = {}) {
-	        const token = localStorage.getItem("token");
-	        if (!token) throw new Error("Missing Open WebUI token in localStorage.token");
+	        const token = getOpenWebUiToken("apply LiveKit agent settings");
 
 	        const settings = getSettings();
 	        const params = new URLSearchParams({ room: roomName });
@@ -1471,9 +2147,14 @@
         }
 
         debug("Apply request", { path: "/apply", query: params.toString() });
+        const headers = {};
+        if (token) {
+          headers.Authorization = `Bearer ${token}`;
+        }
         const res = await fetch(`apply?${params.toString()}`, {
           method: "POST",
-          headers: { Authorization: `Bearer ${token}` },
+          headers,
+          credentials: "same-origin",
         });
         if (!res.ok) {
           let detail = "";
@@ -1496,46 +2177,219 @@
         return payload;
       }
 
-	      async function publishControlMessage(payload) {
-	        if (!lkRoom) throw new Error("Not connected");
-	        const lp = lkRoom.localParticipant;
-	        if (!lp || typeof lp.publishData !== "function") throw new Error("publishData unavailable");
+      async function requestRoomLeave(roomName, { fireAndForget = false, reason = "" } = {}) {
+        const normalizedRoom = String(roomName || "").trim();
+        if (!normalizedRoom) return null;
 
-	        const requestId =
-	          payload?.request_id ||
-	          (crypto?.randomUUID ? crypto.randomUUID() : `req_${Date.now()}_${Math.random().toString(16).slice(2)}`);
-	        const message = { type: "owui.voice.control", request_id: requestId, ...payload };
-	        const encoded = new TextEncoder().encode(JSON.stringify(message));
-	        const topic = CONTROL_DATA_TOPIC;
+        let token = "";
+        try {
+          token = String(localStorage.getItem("token") || "").trim();
+        } catch {}
 
-	        info("Publishing control message", {
-	          op: payload?.op,
-	          bytes: encoded.byteLength,
-	          topic,
-	          request_id: requestId,
-	        });
+        const params = new URLSearchParams({ room: normalizedRoom });
+        if (reason) params.set("reason", reason);
 
-	        const fnLen = Number(lp.publishData.length || 0);
-	        debug("publishData detected", { fnLen });
-	        try {
-	          // Current livekit-client signature: publishData(data, { reliable, topic, destinationIdentities })
-	          if (fnLen <= 2) {
-	            const r = lp.publishData(encoded, { reliable: true, topic });
-	            if (r && typeof r.then === "function") await r;
-	          } else {
-	            // Older signature: publishData(data, kind, topic)
-	            const kind =
-	              LivekitClient?.DataPacket_Kind?.RELIABLE ?? LivekitClient?.DataPacketKind?.RELIABLE;
-	            const r = kind != null ? lp.publishData(encoded, kind, topic) : lp.publishData(encoded, true, topic);
-	            if (r && typeof r.then === "function") await r;
-	          }
-	        } catch (e) {
-	          throw new Error(`publishData failed: ${toPlainError(e)?.message ?? e}`);
-	        }
+        const headers = {};
+        if (token) {
+          headers.Authorization = `Bearer ${token}`;
+        }
 
-	        info("Control message sent", { request_id: requestId });
-	        return requestId;
-	      }
+        debug("Leave cleanup request", {
+          path: "/leave",
+          query: params.toString(),
+          fireAndForget,
+        });
+
+        const requestPath = `leave?${params.toString()}`;
+        const requestInit = {
+          method: "POST",
+          headers,
+          credentials: "same-origin",
+          keepalive: true,
+        };
+
+        if (fireAndForget) {
+          try {
+            fetch(requestPath, requestInit).catch(() => {});
+          } catch {}
+          return null;
+        }
+
+        const res = await fetch(requestPath, requestInit);
+        if (!res.ok) {
+          let detail = "";
+          try {
+            const data = await res.json();
+            detail = data?.detail ?? JSON.stringify(data);
+          } catch {
+            try {
+              detail = await res.text();
+            } catch {
+              detail = "";
+            }
+          }
+          throw new Error(`Leave cleanup failed: ${res.status}${detail ? ` - ${detail}` : ""}`);
+        }
+
+        const payload = await res.json();
+        debug("Leave cleanup response", payload);
+        return payload;
+      }
+
+      function readConnectState() {
+        try {
+          const raw = String(sessionStorage.getItem(CONNECT_STATE_KEY) || "").trim();
+          if (!raw) return null;
+          const parsed = JSON.parse(raw);
+          if (!parsed || typeof parsed !== "object") return null;
+          const room = String(parsed.room || "").trim();
+          const phase = String(parsed.phase || "").trim();
+          const updatedAt = Number(parsed.updated_at || 0);
+          if (!isValidRoomName(room) || !phase || !Number.isFinite(updatedAt) || updatedAt <= 0) {
+            return null;
+          }
+          return { room, phase, updatedAt };
+        } catch {
+          return null;
+        }
+      }
+
+      function persistConnectState(roomName, phase) {
+        const normalizedRoom = String(roomName || "").trim();
+        if (!normalizedRoom || !isValidRoomName(normalizedRoom)) return;
+        pendingRoomName = normalizedRoom;
+        try {
+          sessionStorage.setItem(
+            CONNECT_STATE_KEY,
+            JSON.stringify({
+              room: normalizedRoom,
+              phase: String(phase || "connecting"),
+              client_id: clientId,
+              updated_at: Date.now(),
+            })
+          );
+        } catch {}
+      }
+
+      function clearConnectState() {
+        pendingRoomName = "";
+        try {
+          sessionStorage.removeItem(CONNECT_STATE_KEY);
+        } catch {}
+      }
+
+      function trackedRoomName() {
+        const activeRoom = String(lkRoom?.name || "").trim();
+        if (activeRoom) return activeRoom;
+        return String(pendingRoomName || "").trim();
+      }
+
+      async function cleanupTrackedRoom(roomName, reason, { fireAndForget = false } = {}) {
+        const normalizedRoom = String(roomName || "").trim();
+        if (!normalizedRoom || !isValidRoomName(normalizedRoom)) {
+          clearConnectState();
+          return null;
+        }
+        try {
+          const payload = await requestRoomLeave(normalizedRoom, { fireAndForget, reason });
+          if (!fireAndForget && payload) {
+            info("Room cleanup", { room: normalizedRoom, reason, payload });
+          }
+          return payload;
+        } catch (e) {
+          warn("Room cleanup failed", {
+            room: normalizedRoom,
+            reason,
+            error: toPlainError(e) ?? e,
+          });
+          return null;
+        } finally {
+          if (pendingRoomName === normalizedRoom) {
+            clearConnectState();
+          }
+        }
+      }
+
+      async function connectRoomWithTimeout(room, url, token, timeoutMs) {
+        let timeoutId = null;
+        try {
+          await Promise.race([
+            room.connect(url, token),
+            new Promise((_, reject) => {
+              timeoutId = setTimeout(() => {
+                reject(new Error(`LiveKit connect timed out after ${Math.round(timeoutMs / 1000)}s`));
+              }, timeoutMs);
+            }),
+          ]);
+        } finally {
+          if (timeoutId) clearTimeout(timeoutId);
+        }
+      }
+
+      const recoveredConnectState = readConnectState();
+      if (recoveredConnectState) {
+        const ageMs = Date.now() - recoveredConnectState.updatedAt;
+        if (ageMs > 0 && ageMs <= CONNECT_STATE_MAX_AGE_MS) {
+          pendingRoomName = recoveredConnectState.room;
+          warn("Recovered unfinished prior session; cleaning it up before reconnect", {
+            room: recoveredConnectState.room,
+            phase: recoveredConnectState.phase,
+            age_ms: ageMs,
+          });
+          connectRecoveryPromise = cleanupTrackedRoom(
+            recoveredConnectState.room,
+            "session_recovery"
+          ).catch(() => null);
+        } else {
+          clearConnectState();
+        }
+      }
+
+		      async function publishControlMessage(payload) {
+		        if (!lkRoom) throw new Error("Not connected");
+		        const lp = lkRoom.localParticipant;
+		        if (!lp || typeof lp.publishData !== "function") throw new Error("publishData unavailable");
+
+		        const requestId =
+		          payload?.request_id ||
+		          (crypto?.randomUUID ? crypto.randomUUID() : `req_${Date.now()}_${Math.random().toString(16).slice(2)}`);
+		        const message = { type: "owui.voice.control", request_id: requestId, ...payload };
+		        const encoded = new TextEncoder().encode(JSON.stringify(message));
+		        const topic = CONTROL_DATA_TOPIC;
+
+		        info("Publishing control message", {
+		          op: payload?.op,
+		          bytes: encoded.byteLength,
+		          topic,
+		          request_id: requestId,
+		        });
+
+		        const fnLen = Number(lp.publishData.length || 0);
+		        debug("publishData detected", { fnLen });
+		        let optionsErr = null;
+		        try {
+		          // Current livekit-client signature: publishData(data, { reliable, topic, destinationIdentities })
+		          const r = lp.publishData(encoded, { reliable: true, topic });
+		          if (r && typeof r.then === "function") await r;
+		        } catch (e) {
+		          optionsErr = e;
+		          debug("publishData(options) failed; trying legacy signature", toPlainError(e) ?? e);
+		          try {
+		            // Older signature: publishData(data, kind, topic)
+		            const kind =
+		              LivekitClient?.DataPacket_Kind?.RELIABLE ?? LivekitClient?.DataPacketKind?.RELIABLE;
+		            const r = kind != null ? lp.publishData(encoded, kind, topic) : lp.publishData(encoded, true, topic);
+		            if (r && typeof r.then === "function") await r;
+		          } catch (e2) {
+		            const optsMsg = toPlainError(optionsErr)?.message ?? String(optionsErr);
+		            const legacyMsg = toPlainError(e2)?.message ?? String(e2);
+		            throw new Error(`publishData failed: ${legacyMsg}${optionsErr ? ` (options err: ${optsMsg})` : ""}`);
+		          }
+		        }
+
+		        info("Control message sent", { request_id: requestId });
+		        return requestId;
+		      }
 
 	      async function sendContext() {
 	        if (!lkRoom) {
@@ -1624,51 +2478,495 @@
 	        info("Context cleared");
 	      }
 
-      function attachTrack(track, pub, participant) {
-        // Create a new <audio> for each remote audio track.
-        const el = track.attach();
-        el.autoplay = true;
-        el.controls = true;
-        el.playsInline = true;
+	      function mediaTrackKey(track, pub) {
+	        return track?.mediaStreamTrack?.id || pub?.trackSid || track?.sid || pub?.sid || null;
+	      }
 
-        el.addEventListener("play", () => debug("Audio element: play"));
-        el.addEventListener("pause", () => debug("Audio element: pause"));
-        el.addEventListener("ended", () => warn("Audio element: ended"));
-        el.addEventListener("stalled", () => warn("Audio element: stalled"));
-        el.addEventListener("waiting", () => debug("Audio element: waiting"));
-        el.addEventListener("error", () => {
-          const err = el.error
-            ? { code: el.error.code, message: el.error.message }
-            : { code: null, message: null };
-          error("Audio element: error", err);
-        });
+	      function tryPlayAudio(el, reason, opts = null) {
+	        if (!el) return;
+	        const muteForUnlock = !!opts?.muteForUnlock;
+	        const prevMuted = !!el.muted;
+	        const prevVolume = Number.isFinite(el.volume) ? el.volume : 1;
+	        if (muteForUnlock) {
+	          try {
+	            el.muted = true;
+	            el.volume = 1;
+	          } catch {}
+	        }
+	        try {
+	          const p = el.play();
+	          if (muteForUnlock) {
+	            // Restore immediately so we don't get stuck muted if play() Promise never resolves (e.g. no track yet).
+	            try {
+	              el.muted = prevMuted;
+	              el.volume = prevVolume;
+	            } catch {}
+	          }
+	          if (p && typeof p.then === "function") {
+	            p.then(() => {
+	              audioNeedsUserGesture = false;
+	              renderStatus();
+	              info("Audio: play() OK", { reason });
+	            }).catch((e) => {
+	              audioNeedsUserGesture = true;
+	              renderStatus();
+	              warn("Audio: play() rejected (click Enable Audio)", { reason, error: toPlainError(e) ?? e });
+	            });
+	          } else if (!p) {
+	            audioNeedsUserGesture = false;
+	            renderStatus();
+	            info("Audio: play() returned non-Promise", { reason });
+	          }
+	        } catch (e) {
+	          if (muteForUnlock) {
+	            try {
+	              el.muted = prevMuted;
+	              el.volume = prevVolume;
+	            } catch {}
+	          }
+	          audioNeedsUserGesture = true;
+	          renderStatus();
+	          warn("Audio: play() threw (click Enable Audio)", { reason, error: toPlainError(e) ?? e });
+	        }
+	      }
 
-        // Autoplay can still fail on some mobile browsers; surface the reason.
+		      function ensureRemoteAudioSink() {
+		        try {
+		          remoteAudioStream = remoteAudioStream || new MediaStream();
+		        } catch (e) {
+		          remoteAudioStream = null;
+		          warn("Remote audio: failed to create MediaStream", toPlainError(e) ?? e);
+		        }
+
+		        const isNew = !remoteAudioEl;
+		        remoteAudioEl = remoteAudioEl || document.createElement("audio");
+		        remoteAudioEl.id = "remote_audio";
+		        remoteAudioEl.autoplay = true;
+		        remoteAudioEl.controls = true;
+		        remoteAudioEl.playsInline = true;
+		        remoteAudioEl.muted = outputMode === "webaudio";
+		        remoteAudioEl.volume = 1;
+
+	        if (isNew) {
+	          remoteAudioEl.addEventListener("play", () => {
+	            audioNeedsUserGesture = false;
+	            renderStatus();
+	            debug("Remote audio: play");
+	          });
+	          remoteAudioEl.addEventListener("pause", () => debug("Remote audio: pause"));
+	          remoteAudioEl.addEventListener("ended", () => warn("Remote audio: ended"));
+	          remoteAudioEl.addEventListener("stalled", () => warn("Remote audio: stalled"));
+	          remoteAudioEl.addEventListener("waiting", () => debug("Remote audio: waiting"));
+	          remoteAudioEl.addEventListener("error", () => {
+	            const err = remoteAudioEl.error
+	              ? { code: remoteAudioEl.error.code, message: remoteAudioEl.error.message }
+	              : { code: null, message: null };
+	            error("Remote audio: error", err);
+	          });
+	        }
+
+	        try {
+	          if (remoteAudioStream) remoteAudioEl.srcObject = remoteAudioStream;
+	        } catch {}
+	        try {
+	          if (!audioContainer.contains(remoteAudioEl)) audioContainer.appendChild(remoteAudioEl);
+	        } catch {}
+		        return remoteAudioEl;
+		      }
+
+		      function ensureRemoteAudioContext() {
+		        try {
+		          const AudioCtx = window.AudioContext || window.webkitAudioContext;
+		          if (!AudioCtx) return null;
+		          remoteAudioContext = remoteAudioContext || new AudioCtx();
+		          return remoteAudioContext;
+		        } catch (e) {
+		          warn("WebAudio: failed to create AudioContext", toPlainError(e) ?? e);
+		          return null;
+		        }
+		      }
+
+		      function ensureWebAudioOutput() {
+		        const ctx = ensureRemoteAudioContext();
+		        if (!ctx) return false;
+		        remoteWebAudioGain = remoteWebAudioGain || ctx.createGain();
+		        try {
+		          remoteWebAudioGain.gain.value = outputMode === "webaudio" ? 1 : 0;
+		        } catch {}
+		        if (!remoteWebAudioGainConnected) {
+		          try {
+		            remoteWebAudioGain.connect(ctx.destination);
+		            remoteWebAudioGainConnected = true;
+		          } catch {}
+		        }
+		        return true;
+		      }
+
+		      function setOutputMode(next, reason) {
+		        const n = next === "webaudio" ? "webaudio" : "element";
+		        if (outputMode === n) return;
+		        outputMode = n;
+		        try {
+		          localStorage.setItem("owui_livekit_voice_output_mode", outputMode);
+		        } catch {}
+
+		        ensureWebAudioOutput();
+		        try {
+		          if (remoteWebAudioGain) remoteWebAudioGain.gain.value = outputMode === "webaudio" ? 1 : 0;
+		        } catch {}
+
+		        if (outputMode === "webaudio") {
+		          try {
+		            if (remoteAudioEl) remoteAudioEl.muted = true;
+		          } catch {}
+		          try {
+		            for (const [k, t] of Array.from(remoteAudioTracks.entries())) {
+		              attachWebAudioTrack(k, t, null, null);
+		            }
+		          } catch {}
+			          try {
+			            const rp = remoteAudioContext?.resume?.();
+			            if (rp && typeof rp.catch === "function") rp.catch(() => {});
+			          } catch {}
+			          try {
+			            const needs = remoteAudioContext && remoteAudioContext.state !== "running";
+			            audioNeedsUserGesture = !!needs;
+			            renderStatus();
+			          } catch {}
+			        } else {
+		          // Disable WebAudio sources to reduce CPU when using element output.
+		          try {
+		            for (const [k, entry] of Array.from(remoteWebAudioSources.entries())) {
+		              try {
+		                entry.source.disconnect();
+		              } catch {}
+		              remoteWebAudioSources.delete(k);
+		            }
+		          } catch {}
+		          try {
+		            if (remoteAudioEl) {
+		              remoteAudioEl.muted = false;
+		              remoteAudioEl.volume = 1;
+		              if (remoteAudioEl.paused) tryPlayAudio(remoteAudioEl, "setOutputMode", { muteForUnlock: true });
+		            }
+		          } catch {}
+		          try {
+		            Array.from(audioContainer?.querySelectorAll?.("audio") || []).forEach((el) => {
+		              try {
+		                el.muted = false;
+		                el.volume = 1;
+		              } catch {}
+		            });
+		          } catch {}
+		        }
+
+		        info("Output mode changed", { mode: outputMode, reason });
+		        renderStatus();
+		      }
+
+		      function attachWebAudioTrack(key, msTrack, pub, participant) {
+		        if (outputMode !== "webaudio") return;
+		        if (!key || !msTrack) return;
+		        if (remoteWebAudioSources.has(key)) return;
+		        if (!ensureWebAudioOutput()) {
+		          warn("WebAudio: output unavailable; falling back to element", { key });
+		          setOutputMode("element", "webaudio-unavailable");
+		          return;
+		        }
+		        try {
+		          const stream = new MediaStream([msTrack]);
+		          const source = remoteAudioContext.createMediaStreamSource(stream);
+		          source.connect(remoteWebAudioGain);
+		          remoteWebAudioSources.set(key, { source, stream });
+		          debug("WebAudio: track connected", { key, pub: brief(pub), participant: brief(participant) });
+		        } catch (e) {
+		          warn("WebAudio: track attach failed", { key, error: toPlainError(e) ?? e });
+		          try {
+		            setOutputMode("element", "webaudio-attach-failed");
+		          } catch {}
+		        }
+		      }
+
+		      function detachWebAudioTrack(key) {
+		        if (!key) return;
+		        const entry = remoteWebAudioSources.get(key);
+		        if (!entry) return;
+		        try {
+		          entry.source.disconnect();
+		        } catch {}
+		        remoteWebAudioSources.delete(key);
+		        debug("WebAudio: track disconnected", { key });
+		      }
+
+		      function ensureRemoteAudioSilentTrack() {
+		        if (!remoteAudioStream) return;
+		        if (remoteAudioSilentTrack && remoteAudioSilentTrack.readyState !== "ended") return;
+
+		        try {
+		          const ctx = ensureRemoteAudioContext();
+		          if (!ctx) return;
+		          try {
+		            const rp = ctx.resume?.();
+		            if (rp && typeof rp.catch === "function") rp.catch(() => {});
+		          } catch {}
+
+		          const osc = ctx.createOscillator();
+		          const gain = ctx.createGain();
+		          gain.gain.value = 0;
+		          const dest = ctx.createMediaStreamDestination();
+		          osc.connect(gain);
+		          gain.connect(dest);
+		          osc.start();
+
+	          const t = dest.stream.getAudioTracks()[0];
+	          if (!t) return;
+	          remoteAudioSilentTrack = t;
+	          remoteAudioSilentNodes = { osc, gain, dest };
+	          remoteAudioStream.addTrack(t);
+	          debug("Remote audio: added silent unlock track");
+	        } catch (e) {
+	          warn("Remote audio: failed to create silent unlock track", toPlainError(e) ?? e);
+	        }
+	      }
+
+	      function removeRemoteAudioSilentTrack() {
+	        if (!remoteAudioStream || !remoteAudioSilentTrack) return;
+	        try {
+	          remoteAudioStream.removeTrack(remoteAudioSilentTrack);
+	        } catch {}
+	        try {
+	          remoteAudioSilentTrack.stop?.();
+	        } catch {}
+	        remoteAudioSilentTrack = null;
+
+	        try {
+	          remoteAudioSilentNodes?.osc?.stop?.();
+	        } catch {}
+	        try {
+	          remoteAudioSilentNodes?.osc?.disconnect?.();
+	        } catch {}
+	        try {
+	          remoteAudioSilentNodes?.gain?.disconnect?.();
+	        } catch {}
+	        remoteAudioSilentNodes = null;
+
+	        debug("Remote audio: removed silent unlock track");
+	      }
+
+		      function unlockRemoteAudio(reason, opts = null) {
+		        const el = ensureRemoteAudioSink();
+		        ensureWebAudioOutput();
+		        try {
+		          el.muted = outputMode === "webaudio";
+		        } catch {}
+		        const forceSilent = !!opts?.forceSilent;
+		        let hasRealAudio = false;
+		        try {
+		          const tracks = remoteAudioStream?.getAudioTracks?.() || [];
+	          hasRealAudio = tracks.some((t) => !(remoteAudioSilentTrack && t === remoteAudioSilentTrack));
+	        } catch {}
+	        if (forceSilent || !hasRealAudio) {
+	          ensureRemoteAudioSilentTrack();
+	        } else {
+	          // Avoid mixing a silent unlock track with real audio on mobile.
+	          removeRemoteAudioSilentTrack();
+	        }
+	        try {
+	          if (el && remoteAudioStream && el.srcObject !== remoteAudioStream) {
+	            el.srcObject = remoteAudioStream;
+	          }
+	        } catch {}
+		        try {
+		          const rp = remoteAudioContext?.resume?.();
+		          if (rp && typeof rp.catch === "function") rp.catch(() => {});
+		        } catch {}
+			        tryPlayAudio(el, reason, { muteForUnlock: true });
+			        if (outputMode === "webaudio") {
+			          try {
+			            if (remoteAudioContext && remoteAudioContext.state !== "running") {
+			              audioNeedsUserGesture = true;
+			              renderStatus();
+			            }
+			          } catch {}
+			        }
+			      }
+
+		      function detachTrack(track, pub, participant) {
+		        const key = mediaTrackKey(track, pub);
+		        detachWebAudioTrack(key);
+		        const msTrack = remoteAudioTracks.get(key) || track?.mediaStreamTrack;
+		        if (remoteAudioStream && msTrack) {
+		          try {
+		            remoteAudioStream.removeTrack(msTrack);
+	          } catch {}
+	        }
+	        if (key) remoteAudioTracks.delete(key);
+	        debug("Audio track detached", { key, pub: brief(pub), participant: brief(participant) });
+	      }
+
+		      function attachTrack(track, pub, participant) {
+		        // Use a shared output element so the initial Connect click can "unlock" audio output.
+		        const sinkEl = ensureRemoteAudioSink();
+		        const key = mediaTrackKey(track, pub);
+		        const msTrack = track?.mediaStreamTrack;
+		        if (remoteAudioStream && msTrack) {
+		          try {
+		            if (key && remoteAudioTracks.has(key)) {
+		              debug("Audio track already attached", { key, pub: brief(pub), participant: brief(participant) });
+		              return;
+		            }
+			            remoteAudioStream.addTrack(msTrack);
+			            if (key) remoteAudioTracks.set(key, msTrack);
+			            debug("Audio track attached", { key, pub: brief(pub), participant: brief(participant) });
+			            attachWebAudioTrack(key, msTrack, pub, participant);
+			            // Some mobile browsers behave poorly with multiple audio tracks on a single <audio>.
+			            // Drop the silent unlock track once we have real remote audio.
+			            removeRemoteAudioSilentTrack();
+			            try {
+			              if (sinkEl && remoteAudioStream) sinkEl.srcObject = remoteAudioStream;
+			            } catch {}
+			            try {
+			              sinkEl.muted = outputMode === "webaudio";
+			            } catch {}
+			            if (outputMode === "webaudio") {
+			              // In WebAudio mode, playback comes from AudioContext; keep the <audio> element muted as a fallback.
+				              try {
+				                const rp = remoteAudioContext?.resume?.();
+				                if (rp && typeof rp.catch === "function") rp.catch(() => {});
+				              } catch {}
+				              try {
+				                const needs = remoteAudioContext && remoteAudioContext.state !== "running";
+				                if (needs) {
+				                  audioNeedsUserGesture = true;
+				                  renderStatus();
+				                } else if (audioNeedsUserGesture) {
+				                  audioNeedsUserGesture = false;
+				                  renderStatus();
+				                }
+				              } catch {}
+				              try {
+				                if (sinkEl?.paused) tryPlayAudio(sinkEl, "attachTrack:webaudio", { muteForUnlock: true });
+				              } catch {}
+			              return;
+			            }
+			            tryPlayAudio(sinkEl, "attachTrack");
+			            return;
+			          } catch (e) {
+			            warn("Audio track add failed; falling back to per-track element", toPlainError(e) ?? e);
+			          }
+			        }
+
+	        // Fallback: create a new <audio> for this remote audio track.
+		        const el = track.attach();
+		        el.autoplay = true;
+		        el.controls = true;
+		        el.playsInline = true;
+		        el.muted = outputMode === "webaudio";
+		        el.volume = 1;
+
+	        el.addEventListener("play", () => {
+	          audioNeedsUserGesture = false;
+	          renderStatus();
+	          debug("Audio element: play");
+	        });
+	        el.addEventListener("pause", () => debug("Audio element: pause"));
+	        el.addEventListener("ended", () => warn("Audio element: ended"));
+	        el.addEventListener("stalled", () => warn("Audio element: stalled"));
+	        el.addEventListener("waiting", () => debug("Audio element: waiting"));
+	        el.addEventListener("error", () => {
+	          const err = el.error
+	            ? { code: el.error.code, message: el.error.message }
+	            : { code: null, message: null };
+	          error("Audio element: error", err);
+	        });
+
+		        audioContainer.appendChild(el);
+		        debug("Audio track attached (fallback element)", { track: brief(track), pub: brief(pub), participant: brief(participant) });
+		        attachWebAudioTrack(key, msTrack, pub, participant);
+		        tryPlayAudio(el, "attachTrack:fallback");
+		      }
+
+	      function clearAudio() {
+	        try {
+	          for (const [k, entry] of Array.from(remoteWebAudioSources.entries())) {
+	            try {
+	              entry.source.disconnect();
+	            } catch {}
+	            remoteWebAudioSources.delete(k);
+	          }
+	        } catch {}
+
+	        // Remove remote tracks from the shared sink, but keep the silent unlock track so playback stays "primed".
+	        try {
+	          if (remoteAudioStream) {
+	            for (const t of Array.from(remoteAudioStream.getTracks())) {
+              if (remoteAudioSilentTrack && t === remoteAudioSilentTrack) continue;
+              try {
+                remoteAudioStream.removeTrack(t);
+              } catch {}
+            }
+          }
+        } catch {}
         try {
-          const p = el.play();
-          if (p && typeof p.catch === "function") {
-            p.catch((e) => warn("Audio element: play() rejected", toPlainError(e) ?? e));
-          }
-        } catch (e) {
-          warn("Audio element: play() threw", toPlainError(e) ?? e);
-        }
+          remoteAudioTracks.clear();
+        } catch {}
 
-        audioContainer.appendChild(el);
-        debug("Audio track attached", { track: brief(track), pub: brief(pub), participant: brief(participant) });
-      }
+        // Remove any stray per-track audio elements (fallback) but keep the shared sink.
+        try {
+          Array.from(audioContainer?.querySelectorAll?.("audio") || []).forEach((el) => {
+            if (remoteAudioEl && el === remoteAudioEl) return;
+            try {
+              el.remove();
+            } catch {}
+          });
+	        } catch {}
+	      }
 
-      function clearAudio() {
-        while (audioContainer.firstChild) {
-          try {
-            audioContainer.firstChild.remove();
-          } catch {
-            break;
-          }
-        }
-      }
+	      let audioWatchdog = null;
+	      function stopAudioWatchdog() {
+	        if (!audioWatchdog) return;
+	        try {
+	          clearInterval(audioWatchdog);
+	        } catch {}
+	        audioWatchdog = null;
+	      }
 
-      function bindRoomEvents(room) {
-        const E = LivekitClient.RoomEvent || {};
+	      function startAudioWatchdog() {
+	        stopAudioWatchdog();
+	        audioWatchdog = setInterval(() => {
+	          if (!lkRoom) return;
+	          if (!remoteAudioTracks || remoteAudioTracks.size === 0) return;
+
+		          if (outputMode === "webaudio") {
+		            if (!ensureWebAudioOutput()) return;
+		            try {
+		              if (remoteAudioContext && remoteAudioContext.state !== "running") {
+		                const rp = remoteAudioContext.resume?.();
+		                if (rp && typeof rp.catch === "function") rp.catch(() => {});
+		              }
+		            } catch {}
+		            try {
+		              const needs = remoteAudioContext && remoteAudioContext.state !== "running";
+		              if (needs && !audioNeedsUserGesture) {
+		                audioNeedsUserGesture = true;
+		                renderStatus();
+		              } else if (!needs && audioNeedsUserGesture) {
+		                audioNeedsUserGesture = false;
+		                renderStatus();
+		              }
+		            } catch {}
+		            return;
+		          }
+
+	          try {
+	            const el = remoteAudioEl || ensureRemoteAudioSink();
+	            if (el && el.paused) tryPlayAudio(el, "watchdog", { muteForUnlock: true });
+	          } catch {}
+	        }, 1500);
+	      }
+
+	      function bindRoomEvents(room) {
+	        const E = LivekitClient.RoomEvent || {};
 
         const on = (eventName, level, label) => {
           const ev = E[eventName];
@@ -1765,20 +3063,83 @@
           });
         } catch {}
 
-        const state = {
-          roomName: lkRoom.name,
-          connectionState: lkRoom.state,
-          localParticipant: brief(lkRoom.localParticipant),
-          remoteParticipants,
-        };
+	        const state = {
+	          roomName: lkRoom.name,
+	          connectionState: lkRoom.state,
+	          audio: (() => {
+	            const audioEls = Array.from(audioContainer?.querySelectorAll?.("audio") || []);
+	            const streamTracks = [];
+	            try {
+	              (remoteAudioStream?.getTracks?.() || []).forEach((t) => {
+	                streamTracks.push({
+	                  id: t.id,
+	                  kind: t.kind,
+	                  enabled: t.enabled,
+	                  muted: t.muted,
+	                  readyState: t.readyState,
+	                });
+	              });
+	            } catch {}
+		            return {
+		              outputMode,
+		              needsUserGesture: audioNeedsUserGesture,
+		              containerAudioElements: audioEls.length,
+		              webaudio: {
+		                sources: (() => {
+		                  try {
+		                    return remoteWebAudioSources.size;
+		                  } catch {
+		                    return null;
+		                  }
+		                })(),
+		                gain: (() => {
+		                  try {
+		                    return remoteWebAudioGain?.gain?.value ?? null;
+		                  } catch {
+		                    return null;
+		                  }
+		                })(),
+		              },
+		              remoteEl: remoteAudioEl
+		                ? {
+		                    paused: remoteAudioEl.paused,
+	                    muted: remoteAudioEl.muted,
+	                    volume: remoteAudioEl.volume,
+	                    readyState: remoteAudioEl.readyState,
+	                  }
+	                : null,
+	              remoteStream: remoteAudioStream
+	                ? {
+	                    tracks: streamTracks,
+	                    silentUnlockPresent: !!remoteAudioSilentTrack,
+	                  }
+	                : null,
+	              audioContext: remoteAudioContext
+	                ? { state: remoteAudioContext.state, sampleRate: remoteAudioContext.sampleRate }
+	                : null,
+	            };
+	          })(),
+	          localParticipant: brief(lkRoom.localParticipant),
+	          remoteParticipants,
+	        };
         info("State dump", state);
       }
 
 	      function setConnectedUI(connected) {
-	        disconnectBtn.disabled = !connected;
-	        connectBtn.disabled = connected;
+	        const busy = connectInFlight || connected;
+	        disconnectBtn.disabled = !busy;
+	        connectBtn.disabled = busy;
+          roomInput.disabled = busy;
 	        dumpStateBtn.disabled = !connected;
 	        applyBtn.disabled = !connected;
+	        if (toggleMicBtn) toggleMicBtn.disabled = !connected;
+	        if (enableAudioBtn) enableAudioBtn.disabled = !connected;
+	        renderMicButton();
+	      }
+
+	      function renderMicButton() {
+	        if (!toggleMicBtn) return;
+	        toggleMicBtn.textContent = micPaused ? "Resume Mic" : "Pause Mic";
 	      }
 
       if (contextTextInput) {
@@ -1823,10 +3184,28 @@
 	      }
 
       connectBtn.addEventListener("click", async () => {
-        connectBtn.disabled = true;
+        const attemptSeq = ++connectAttemptSeq;
+        let attemptedRoomName = "";
+        let connectRoom = null;
+        let roomWasMinted = false;
+        let shouldRotateRoom = false;
+        connectInFlight = true;
+        setConnectedUI(false);
         try {
+          disconnectInitiatedByUser = false;
+          await connectRecoveryPromise;
+          const staleState = readConnectState();
+          if (staleState?.room) {
+            pendingRoomName = staleState.room;
+            await cleanupTrackedRoom(staleState.room, "preconnect_cleanup");
+          }
           validateSettings();
           persistSettings();
+
+          // Try to unlock audio output from this user gesture (autoplay restrictions).
+          audioNeedsUserGesture = false;
+          renderStatus();
+          unlockRemoteAudio("connect-click", { forceSilent: true });
 
           if (keepAwakeInput.checked) {
             await acquireWakeLock();
@@ -1834,11 +3213,13 @@
 
           const roomName = roomInput.value.trim();
           if (!roomName) throw new Error("Room is required");
-          if (!roomName.startsWith("owui-voice-")) {
+          if (!isValidRoomName(roomName)) {
             throw new Error(
-              "Invalid room: must start with owui-voice- (this is not the Cartesia voice ID)"
+              "Invalid room: must be owui-voice-* and contain only letters, numbers, underscore, or dash"
             );
           }
+          attemptedRoomName = roomName;
+          persistConnectState(attemptedRoomName, "minting");
 
           clearAudio();
           info("Settings", getSettings());
@@ -1846,37 +3227,55 @@
           const t0 = performance.now();
           info(`Minting token for room=${roomName}...`);
           const { url, token, room } = await mintToken(roomName);
+          roomWasMinted = true;
+          attemptedRoomName = String(room || roomName || "").trim();
           if (room) roomInput.value = room;
-          try {
-            localStorage.setItem(ROOM_KEY, roomInput.value.trim());
-          } catch {}
-          loadTranscript(roomInput.value.trim());
-          loadContext(roomInput.value.trim());
-          info("Token minted", { ms: Math.round(performance.now() - t0), url, room: roomInput.value.trim() });
+          persistConnectState(attemptedRoomName, "connecting");
+          persistRoomSelection(attemptedRoomName);
+          loadTranscript(attemptedRoomName);
+          loadContext(attemptedRoomName);
+          info("Token minted", { ms: Math.round(performance.now() - t0), url, room: attemptedRoomName });
 
           info(`Connecting to LiveKit @ ${url}...`);
-          lkRoom = new LivekitClient.Room();
+          connectRoom = new LivekitClient.Room();
+          lkRoom = connectRoom;
 
-          bindRoomEvents(lkRoom);
-          bindDataEvents(lkRoom);
+          bindRoomEvents(connectRoom);
+          bindDataEvents(connectRoom);
 
           try {
-            await lkRoom.connect(url, token);
+            await connectRoomWithTimeout(connectRoom, url, token, CONNECT_TIMEOUT_MS);
           } catch (e) {
             throw new Error(`LiveKit connect failed: ${toPlainError(e)?.message ?? e}`);
           }
 
+          if (connectAttemptSeq !== attemptSeq || lkRoom !== connectRoom) {
+            throw new Error("LiveKit connect superseded by a newer session attempt");
+          }
+
+          persistConnectState(connectRoom.name || attemptedRoomName, "connected");
+
           try {
             info("Enabling microphone...");
-            await lkRoom.localParticipant.setMicrophoneEnabled(true);
+            await connectRoom.localParticipant.setMicrophoneEnabled(true);
             info("Microphone enabled");
+	          micPaused = false;
+	          renderMicButton();
           } catch (e) {
-            throw new Error(`Microphone enable failed: ${toPlainError(e)?.message ?? e}`);
+            // Mobile browsers (especially iOS) can be strict about when mic permission prompts are allowed.
+            // Treat mic enable as best-effort so we can still connect and let the user tap "Resume Mic".
+            micPaused = true;
+            renderMicButton();
+            warn("Microphone enable failed (still connected; tap Resume Mic to try again)", toPlainError(e) ?? e);
+          }
+
+          if (connectAttemptSeq !== attemptSeq || lkRoom !== connectRoom) {
+            throw new Error("LiveKit connect superseded during setup");
           }
 
           // Attach remote audio tracks already present (if any).
           try {
-            lkRoom.remoteParticipants?.forEach?.((p) => {
+            connectRoom.remoteParticipants?.forEach?.((p) => {
               try {
                 p.trackPublications?.forEach?.((pub) => {
                   if (pub?.track && pub.kind === "audio") {
@@ -1890,7 +3289,8 @@
           // Attach future subscribed audio tracks.
           const E = LivekitClient.RoomEvent || {};
           if (E.TrackSubscribed) {
-            lkRoom.on(E.TrackSubscribed, (track, pub, participant) => {
+            connectRoom.on(E.TrackSubscribed, (track, pub, participant) => {
+              if (lkRoom !== connectRoom) return;
               if (track?.kind === "audio") {
                 info("Remote audio track subscribed", { participant: brief(participant), pub: brief(pub) });
                 attachTrack(track, pub, participant);
@@ -1900,38 +3300,144 @@
             });
           }
           if (E.TrackUnsubscribed) {
-            lkRoom.on(E.TrackUnsubscribed, (track, pub, participant) => {
+            connectRoom.on(E.TrackUnsubscribed, (track, pub, participant) => {
+              if (lkRoom !== connectRoom) return;
               warn("Track unsubscribed", { track: brief(track), pub: brief(pub), participant: brief(participant) });
+              try {
+                if (track?.kind === "audio") detachTrack(track, pub, participant);
+              } catch {}
             });
           }
           if (E.ParticipantDisconnected) {
-            lkRoom.on(E.ParticipantDisconnected, (p) => {
+            connectRoom.on(E.ParticipantDisconnected, (p) => {
+              if (lkRoom !== connectRoom) return;
               warn("Participant disconnected", { identity: p?.identity, note: "If this was the agent, check server logs for the root cause." });
             });
           }
-          if (E.Disconnected) {
-            lkRoom.on(E.Disconnected, (reason) => {
-              warn("Disconnected event", reason);
-              setConnectedUI(false);
-              lkRoom = null;
-              releaseWakeLock();
-            });
+	          if (E.Disconnected) {
+		            connectRoom.on(E.Disconnected, (reason) => {
+                  const disconnectedRoom = String(connectRoom.name || attemptedRoomName || "").trim();
+                  const isCurrentRoom = lkRoom === connectRoom;
+                  const userInitiatedDisconnect = disconnectInitiatedByUser;
+                  disconnectInitiatedByUser = false;
+                  if (!userInitiatedDisconnect && disconnectedRoom) {
+                    cleanupTrackedRoom(disconnectedRoom, "room_disconnected", {
+                      fireAndForget: true,
+                    });
+                  }
+		              warn("Disconnected event", reason);
+                  if (!isCurrentRoom) return;
+		              try {
+		                stopAudioWatchdog();
+		              } catch {}
+		              try {
+		                clearAudio();
+		              } catch {}
+		              connectInFlight = false;
+		              setConnectedUI(false);
+	              audioNeedsUserGesture = false;
+                  clearConnectState();
+	              lkRoom = null;
+		            micPaused = false;
+		            renderMicButton();
+	              releaseWakeLock();
+                  rotateRoomForNextConnect();
+	              renderStatus();
+	            });
+	          }
+
+          if (connectAttemptSeq !== attemptSeq || lkRoom !== connectRoom) {
+            throw new Error("LiveKit connect superseded during finalization");
           }
 
-          info("Connected");
-          setConnectedUI(true);
+	          info("Connected");
+            connectInFlight = false;
+	          setConnectedUI(true);
+	          startAudioWatchdog();
+	          renderStatus();
           try {
             await maybeAutoSendContext();
           } catch (e) {
             error("Auto-send context failed", toPlainError(e) ?? e);
           }
-        } catch (e) {
-          error("Connect failed", toPlainError(e) ?? e);
-          connectBtn.disabled = false;
-          releaseWakeLock();
-          setConnectedUI(false);
-        }
-      });
+		        } catch (e) {
+		          error("Connect failed", toPlainError(e) ?? e);
+              disconnectInitiatedByUser = false;
+              shouldRotateRoom = !!attemptedRoomName;
+              if (connectRoom) {
+                try {
+                  connectRoom.disconnect(true);
+                } catch {}
+              }
+              if (lkRoom === connectRoom) {
+                lkRoom = null;
+              }
+              if (attemptedRoomName && roomWasMinted) {
+                await cleanupTrackedRoom(attemptedRoomName, "connect_failed");
+              } else {
+                clearConnectState();
+              }
+		          try {
+		            stopAudioWatchdog();
+		          } catch {}
+              connectInFlight = false;
+		          releaseWakeLock();
+		          setConnectedUI(false);
+	          audioNeedsUserGesture = false;
+              micPaused = false;
+              renderMicButton();
+              if (shouldRotateRoom) {
+                rotateRoomForNextConnect();
+              }
+	          renderStatus();
+	        }
+	      });
+
+	      if (enableAudioBtn) {
+	        enableAudioBtn.addEventListener("click", async () => {
+	          try {
+	            // If a user is tapping this, try the alternate output path too.
+	            if (outputMode === "webaudio") {
+	              setOutputMode("element", "enable-audio-click");
+	            }
+	            unlockRemoteAudio("enable-audio-click", { forceSilent: true });
+	            const els = Array.from(audioContainer?.querySelectorAll?.("audio") || []);
+	            if (!els.length) {
+	              warn("Enable Audio: no audio elements yet");
+	              return;
+	            }
+
+            const attempts = [];
+            for (const el of els) {
+              try {
+                el.muted = false;
+                el.volume = 1;
+                const p = el.play();
+                if (p && typeof p.then === "function") attempts.push(p);
+              } catch (e) {
+                attempts.push(Promise.reject(e));
+              }
+            }
+
+            const results = await Promise.allSettled(attempts);
+            const ok = results.filter((r) => r.status === "fulfilled").length;
+            const fail = results.length - ok;
+            for (const r of results) {
+              if (r.status === "rejected") {
+                warn("Enable Audio: play() failed", toPlainError(r.reason) ?? r.reason);
+              }
+            }
+
+            audioNeedsUserGesture = fail > 0;
+            renderStatus();
+            info("Enable Audio: attempted", { ok, fail, tracks: els.length });
+          } catch (e) {
+            audioNeedsUserGesture = true;
+            renderStatus();
+            error("Enable Audio failed", toPlainError(e) ?? e);
+          }
+        });
+      }
 
       applyBtn.addEventListener("click", async () => {
         if (!lkRoom) {
@@ -1944,6 +3450,9 @@
           validateSettings();
           persistSettings();
 
+          // Re-unlock audio output if the browser dropped it (Apply is a user gesture).
+          unlockRemoteAudio("apply-click", { forceSilent: true });
+
           if (keepAwakeInput.checked) {
             await acquireWakeLock();
           }
@@ -1951,6 +3460,11 @@
           const roomName = lkRoom.name || roomInput.value.trim();
           if (!roomName) throw new Error("Room is required");
           roomInput.value = roomName;
+          if (!isValidRoomName(roomName)) {
+            throw new Error(
+              "Invalid room: must be owui-voice-* and contain only letters, numbers, underscore, or dash"
+            );
+          }
 
           info("Applying settings (restarting agent)…", { room: roomName, settings: getSettings() });
           clearAudio();
@@ -1984,18 +3498,59 @@
 
       disconnectBtn.addEventListener("click", async () => {
         disconnectBtn.disabled = true;
+        connectAttemptSeq += 1;
+        const roomName = trackedRoomName();
+        disconnectInitiatedByUser = true;
+        try {
+          stopAudioWatchdog();
+        } catch {}
         if (lkRoom) {
           info("Disconnecting...");
           lkRoom.disconnect(true);
         }
+        if (roomName) {
+          try {
+            await cleanupTrackedRoom(roomName, "disconnect_click");
+          } catch (e) {
+            warn("Room cleanup failed after disconnect", toPlainError(e) ?? e);
+          }
+        }
+        lkRoom = null;
+        clearConnectState();
+        connectInFlight = false;
         releaseWakeLock();
+        micPaused = false;
+        renderMicButton();
         setConnectedUI(false);
+        rotateRoomForNextConnect();
       });
+
+      if (toggleMicBtn) {
+        toggleMicBtn.addEventListener("click", async () => {
+          if (!lkRoom) {
+            warn("Mic toggle requested but not connected");
+            return;
+          }
+
+          toggleMicBtn.disabled = true;
+          try {
+            const nextPaused = !micPaused;
+            await lkRoom.localParticipant.setMicrophoneEnabled(!nextPaused);
+            micPaused = nextPaused;
+            renderMicButton();
+            info(micPaused ? "Microphone paused (still connected)" : "Microphone resumed");
+          } catch (e) {
+            error("Microphone toggle failed", toPlainError(e) ?? e);
+          } finally {
+            toggleMicBtn.disabled = !lkRoom;
+          }
+        });
+      }
 
       roomInput.addEventListener("change", () => {
         try {
           const val = roomInput.value.trim();
-          if (val) localStorage.setItem(ROOM_KEY, val);
+          persistRoomSelection(val);
         } catch {}
         loadTranscript(roomInput.value.trim());
         loadContext(roomInput.value.trim());
@@ -2006,6 +3561,11 @@
         debug("visibilitychange", { state: document.visibilityState });
         if (document.visibilityState === "visible" && lkRoom && keepAwakeInput.checked) {
           acquireWakeLock();
+        }
+        if (document.visibilityState === "visible" && lkRoom) {
+          try {
+            unlockRemoteAudio("visibility:visible");
+          } catch {}
         }
       });
 
@@ -2088,20 +3648,116 @@
         });
       }
 
-      if (saveToWebuiBtn) {
-        saveToWebuiBtn.addEventListener("click", async () => {
-          saveToWebuiBtn.disabled = true;
-          try {
-            await saveTranscriptToWebui();
-          } catch (e) {
-            error("Save to WebUI failed", toPlainError(e) ?? e);
-          } finally {
-            saveToWebuiBtn.disabled = false;
-          }
-        });
-      }
+	      if (saveToWebuiBtn) {
+	        saveToWebuiBtn.addEventListener("click", async () => {
+	          saveToWebuiBtn.disabled = true;
+	          try {
+	            await syncTranscriptToWebui({ forceNew: false });
+	            try {
+	              await refreshWebuiChats();
+	            } catch {}
+	          } catch (e) {
+	            error("Sync to WebUI failed", toPlainError(e) ?? e);
+	          } finally {
+	            saveToWebuiBtn.disabled = false;
+	          }
+	        });
+	      }
 
-      dumpStateBtn.addEventListener("click", () => dumpState());
+	      if (saveNewWebuiBtn) {
+	        saveNewWebuiBtn.addEventListener("click", async () => {
+	          saveNewWebuiBtn.disabled = true;
+	          try {
+	            await saveTranscriptToWebui();
+	            try {
+	              await refreshWebuiChats();
+	            } catch {}
+	          } catch (e) {
+	            error("Save new WebUI chat failed", toPlainError(e) ?? e);
+	          } finally {
+	            saveNewWebuiBtn.disabled = false;
+	          }
+	        });
+	      }
+
+	      if (refreshWebuiChatsBtn) {
+	        refreshWebuiChatsBtn.addEventListener("click", async () => {
+	          refreshWebuiChatsBtn.disabled = true;
+	          try {
+	            await refreshWebuiChats();
+	          } catch (e) {
+	            warn("Refresh chats failed", toPlainError(e) ?? e);
+	          } finally {
+	            refreshWebuiChatsBtn.disabled = false;
+	          }
+	        });
+	      }
+
+	      if (unlinkWebuiChatBtn) {
+	        unlinkWebuiChatBtn.addEventListener("click", () => {
+	          const roomName = roomInput.value.trim();
+	          if (!roomName) {
+	            savedChatId = null;
+	            renderSavedChat();
+	            renderTranscript();
+	            return;
+	          }
+	          persistSavedChat(roomName, null);
+	          renderTranscript();
+	          info("Unlinked WebUI chat", { room: roomName });
+	        });
+	      }
+
+	      if (webuiChatsListEl) {
+	        webuiChatsListEl.addEventListener("click", async (ev) => {
+	          const btn = ev.target?.closest?.("button");
+	          if (!btn) return;
+	          const action = String(btn.dataset.action || "").trim();
+	          const chatId = String(btn.dataset.chatId || "").trim();
+	          const chatTitle = String(btn.dataset.chatTitle || "").trim();
+	          if (!action || !chatId) return;
+
+	          btn.disabled = true;
+	          try {
+	            if (action === "load") {
+	              await loadWebuiChatForViewing(chatId);
+	              info("Loaded WebUI chat", { chat_id: chatId });
+	              return;
+	            }
+	            if (action === "continue") {
+	              await loadWebuiChatForContinue(chatId, chatTitle);
+	              info("Ready to continue chat", { chat_id: chatId, room: roomInput.value.trim() });
+	              return;
+	            }
+	            if (action === "rename") {
+	              const next = prompt("New chat title:", chatTitle || "");
+	              if (!next) return;
+	              await renameWebuiChat(chatId, next);
+	              info("Chat renamed", { chat_id: chatId });
+	              await refreshWebuiChats();
+	              return;
+	            }
+	            if (action === "delete") {
+	              if (!confirm("Delete this chat from Open WebUI? This cannot be undone.")) return;
+	              await deleteWebuiChat(chatId);
+	              info("Chat deleted", { chat_id: chatId });
+	              if (savedChatId === chatId) {
+	                try {
+	                  persistSavedChat(roomInput.value.trim(), null);
+	                } catch {}
+	              }
+	              await refreshWebuiChats();
+	              return;
+	            }
+	          } catch (e) {
+	            error(`Chat action failed: ${action}`, toPlainError(e) ?? e);
+	          } finally {
+	            btn.disabled = false;
+	          }
+	        });
+	      }
+
+	      dumpStateBtn.addEventListener("click", () => dumpState());
 
       // Surface unexpected client-side failures into the log panel.
       window.addEventListener("error", (ev) => {

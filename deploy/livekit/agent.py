@@ -7,13 +7,17 @@ from typing import Any
 from livekit import agents
 from livekit import rtc
 from livekit.agents.voice import events as voice_events
-from livekit.agents import Agent, AgentServer, AgentSession
+from livekit.agents import Agent, AgentServer, AgentSession, StopResponse, llm
+from livekit.agents.tokenize.basic import split_words
 from livekit.agents.voice import room_io
 from livekit.agents.log import logger
 from livekit.plugins import cartesia, openai
 
 
 AGENT_NAME = os.getenv("LIVEKIT_AGENT_NAME", "owui-voice")
+LIVEKIT_HTTP_URL = os.getenv("LIVEKIT_HTTP_URL", "").strip()
+LIVEKIT_API_KEY = os.getenv("LIVEKIT_API_KEY", "").strip()
+LIVEKIT_API_SECRET = os.getenv("LIVEKIT_API_SECRET", "").strip()
 
 STT_MODEL = os.getenv("LIVEKIT_STT_MODEL", "ink-whisper")
 STT_LANGUAGE = os.getenv("LIVEKIT_STT_LANGUAGE", "en")
@@ -37,16 +41,316 @@ CONTROL_DATA_TOPIC = os.getenv("LIVEKIT_CONTROL_DATA_TOPIC", "owui.voice.control
 MAX_CONTEXT_CHARS = int(os.getenv("LIVEKIT_MAX_CONTEXT_CHARS", "50000"))
 
 
+def _env_int(name: str, default: int) -> int:
+    raw = os.getenv(name, "").strip()
+    if not raw:
+        return default
+    try:
+        return int(raw)
+    except Exception:
+        return default
+
+
+def _env_float(name: str, default: float) -> float:
+    raw = os.getenv(name, "").strip()
+    if not raw:
+        return default
+    try:
+        return float(raw)
+    except Exception:
+        return default
+
+
+def _env_bool(name: str, default: bool) -> bool:
+    raw = os.getenv(name, "").strip()
+    if not raw:
+        return default
+    lowered = raw.lower()
+    if lowered in ("1", "true", "yes", "y", "on"):
+        return True
+    if lowered in ("0", "false", "no", "n", "off"):
+        return False
+    return default
+
+
+def _normalize_livekit_http_url(value: str) -> str:
+    raw = (value or "").strip()
+    if raw.startswith("ws://"):
+        return f"http://{raw.removeprefix('ws://')}"
+    if raw.startswith("wss://"):
+        return f"https://{raw.removeprefix('wss://')}"
+    return raw
+
+
+NUM_IDLE_PROCESSES = _env_int("LIVEKIT_NUM_IDLE_PROCESSES", 0)
+JOB_MEMORY_WARN_MB = _env_float("LIVEKIT_JOB_MEMORY_WARN_MB", 256.0)
+JOB_MEMORY_LIMIT_MB = _env_float("LIVEKIT_JOB_MEMORY_LIMIT_MB", 384.0)
+SHUTDOWN_PROCESS_TIMEOUT_SEC = _env_float("LIVEKIT_SHUTDOWN_PROCESS_TIMEOUT_SEC", 3.0)
+LLM_ERROR_SPOKEN_COOLDOWN_SEC = _env_float("LIVEKIT_LLM_ERROR_SPOKEN_COOLDOWN_SEC", 12.0)
+LLM_FAILURE_MESSAGE = os.getenv("LIVEKIT_LLM_FAILURE_MESSAGE", "").strip()
+SESSION_IDLE_TIMEOUT_SEC = _env_float("LIVEKIT_SESSION_IDLE_TIMEOUT_SEC", 900.0)
+SESSION_IDLE_CHECK_INTERVAL_SEC = _env_float(
+    "LIVEKIT_SESSION_IDLE_CHECK_INTERVAL_SEC",
+    15.0,
+)
+SESSION_IDLE_FORCE_DELETE = _env_bool("LIVEKIT_SESSION_IDLE_FORCE_DELETE", True)
+STT_FINAL_DEDUP_WINDOW_SEC = _env_float("LIVEKIT_STT_FINAL_DEDUP_WINDOW_SEC", 8.0)
+SUPPRESS_FRAGMENT_TURNS = _env_bool("LIVEKIT_SUPPRESS_FRAGMENT_TURNS", True)
+FRAGMENT_TURN_MAX_WORDS = max(0, _env_int("LIVEKIT_FRAGMENT_TURN_MAX_WORDS", 1))
+FRAGMENT_TURN_MAX_CHARS = max(0, _env_int("LIVEKIT_FRAGMENT_TURN_MAX_CHARS", 24))
+
+
+def _normalize_fragment_turn_text(value: object) -> str:
+    text = " ".join(str(value or "").split()).strip().casefold()
+    return text.strip(" \t\r\n.,!?;:-—\"'()[]{}")
+
+
+def _env_csv_set(name: str, default: str) -> set[str]:
+    raw = os.getenv(name, default)
+    values = set()
+    for part in raw.split(","):
+        normalized = _normalize_fragment_turn_text(part)
+        if normalized:
+            values.add(normalized)
+    return values
+
+
+FRAGMENT_TURN_ALLOWLIST = _env_csv_set(
+    "LIVEKIT_FRAGMENT_TURN_ALLOWLIST",
+    "yes,no,ok,okay,hello,hi,hey,help,stop,repeat,continue",
+)
+FRAGMENT_TURN_BLOCKLIST = _env_csv_set(
+    "LIVEKIT_FRAGMENT_TURN_BLOCKLIST",
+    "what,when,where,why,who,whom,whose,which,how,thank,thanks",
+)
+
+
+def _spoken_model_name(model: str) -> str:
+    lowered = (model or "").strip().lower()
+    if lowered == "zai-glm-4.7":
+        return "GLM 4.7"
+    if lowered == "zai-glm-4.6":
+        return "GLM 4.6"
+    return "the language model"
+
+
+def _default_llm_failure_message(model: str) -> str:
+    if LLM_FAILURE_MESSAGE:
+        return LLM_FAILURE_MESSAGE
+    return (
+        f"I'm having trouble getting a response from {_spoken_model_name(model)} right now. "
+        "The model server may be overloaded. Please try again in a moment."
+    )
+
+
+def _normalize_transcript_key(value: object) -> str:
+    text = " ".join(str(value or "").split()).strip()
+    return text.casefold()
+
+
+def _should_suppress_fragment_turn(text: object) -> tuple[bool, dict[str, object]]:
+    normalized = _normalize_fragment_turn_text(text)
+    details: dict[str, object] = {
+        "normalized_text": normalized,
+        "word_count": 0,
+        "char_count": len(normalized),
+        "reason": None,
+    }
+
+    if not SUPPRESS_FRAGMENT_TURNS or not normalized:
+        return False, details
+    if normalized in FRAGMENT_TURN_ALLOWLIST:
+        details["reason"] = "allowlist"
+        return False, details
+
+    word_count = len(split_words(normalized, ignore_punctuation=True))
+    details["word_count"] = word_count
+
+    if FRAGMENT_TURN_MAX_WORDS > 0 and word_count > FRAGMENT_TURN_MAX_WORDS:
+        details["reason"] = "too_many_words"
+        return False, details
+    if FRAGMENT_TURN_MAX_CHARS > 0 and len(normalized) > FRAGMENT_TURN_MAX_CHARS:
+        details["reason"] = "too_many_chars"
+        return False, details
+    if normalized in FRAGMENT_TURN_BLOCKLIST:
+        details["reason"] = "blocklist"
+        return True, details
+
+    return False, details
+
+
+async def _cleanup_room_if_empty(
+    room_name: str,
+    *,
+    trigger_reason: str,
+    force: bool = False,
+) -> bool:
+    room_name = str(room_name or "").strip()
+    if not room_name:
+        return False
+
+    livekit_http_url = LIVEKIT_HTTP_URL or _normalize_livekit_http_url(
+        os.getenv("LIVEKIT_URL", "")
+    )
+    if not livekit_http_url or not LIVEKIT_API_KEY or not LIVEKIT_API_SECRET:
+        logger.warning(
+            "Skipping empty-room cleanup; missing LiveKit admin configuration",
+            extra={"room": room_name, "trigger_reason": trigger_reason},
+        )
+        return False
+
+    from livekit import api
+
+    lk = api.LiveKitAPI(
+        url=livekit_http_url,
+        api_key=LIVEKIT_API_KEY,
+        api_secret=LIVEKIT_API_SECRET,
+    )
+
+    try:
+        existing = await lk.room.list_rooms(api.ListRoomsRequest(names=[room_name]))
+        if not existing.rooms:
+            return False
+
+        participants = await lk.room.list_participants(
+            api.ListParticipantsRequest(room=room_name)
+        )
+        human_identities = [
+            identity
+            for p in (participants.participants or [])
+            if (identity := str(getattr(p, "identity", "") or "").strip())
+            and not identity.startswith("agent-")
+        ]
+        if human_identities and not force:
+            logger.info(
+                "Skipping empty-room cleanup; human participants remain",
+                extra={
+                    "room": room_name,
+                    "trigger_reason": trigger_reason,
+                    "force": force,
+                    "participants": human_identities,
+                },
+            )
+            return False
+        if human_identities and force:
+            logger.warning(
+                "Force-deleting room with remaining human participants",
+                extra={
+                    "room": room_name,
+                    "trigger_reason": trigger_reason,
+                    "force": force,
+                    "participants": human_identities,
+                },
+            )
+
+        try:
+            dispatches = await lk.agent_dispatch.list_dispatch(room_name=room_name)
+            for d in dispatches:
+                if getattr(d, "agent_name", None) == AGENT_NAME:
+                    await lk.agent_dispatch.delete_dispatch(d.id, room_name)
+        except Exception:
+            logger.exception(
+                "Failed to delete agent dispatch during empty-room cleanup",
+                extra={"room": room_name, "trigger_reason": trigger_reason, "force": force},
+            )
+
+        await lk.room.delete_room(api.DeleteRoomRequest(room=room_name))
+        logger.info(
+            "Deleted empty room after agent close",
+            extra={"room": room_name, "trigger_reason": trigger_reason, "force": force},
+        )
+        return True
+    except Exception:
+        logger.exception(
+            "Empty-room cleanup failed",
+            extra={"room": room_name, "trigger_reason": trigger_reason, "force": force},
+        )
+        return False
+    finally:
+        await lk.aclose()
+
+
 def _turn_detection(mode: str) -> Any:
     if mode in ("multilingual", "ml"):
+        if not TURN_DETECTOR_PLUGIN_READY:
+            logger.warning(
+                "turn_detection_fallback_to_stt",
+                extra={
+                    "requested_mode": mode,
+                    "reason": "turn-detector plugin not registered at worker startup",
+                },
+            )
+            return "stt"
         try:
             from livekit.plugins.turn_detector.multilingual import MultilingualModel
 
             return MultilingualModel()
-        except Exception:
+        except Exception as exc:
+            logger.warning(
+                "turn_detection_fallback_to_stt",
+                extra={
+                    "requested_mode": mode,
+                    "reason": f"{type(exc).__name__}: {exc}"[:500],
+                },
+            )
             return "stt"
 
     return "stt"
+
+
+def _has_local_multilingual_turn_detector_assets() -> bool:
+    try:
+        from livekit.plugins.turn_detector.base import _download_from_hf_hub
+        from livekit.plugins.turn_detector.models import (
+            HG_MODEL,
+            MODEL_REVISIONS,
+            ONNX_FILENAME,
+        )
+
+        revision = MODEL_REVISIONS["multilingual"]
+        _download_from_hf_hub(
+            HG_MODEL,
+            "languages.json",
+            revision=revision,
+            local_files_only=True,
+        )
+        _download_from_hf_hub(
+            HG_MODEL,
+            ONNX_FILENAME,
+            subfolder="onnx",
+            revision=revision,
+            local_files_only=True,
+        )
+        return True
+    except Exception:
+        return False
+
+
+def _register_turn_detector_plugin_if_available() -> bool:
+    remote_eot_url = os.getenv("LIVEKIT_REMOTE_EOT_URL", "").strip()
+    if not remote_eot_url and not _has_local_multilingual_turn_detector_assets():
+        logger.warning(
+            "turn_detector_plugin_not_registered",
+            extra={
+                "reason": "multilingual turn-detector assets missing; ml mode will fall back to stt",
+            },
+        )
+        return False
+
+    try:
+        from livekit.plugins.turn_detector import multilingual as _turn_detector_multilingual
+
+        _ = _turn_detector_multilingual
+        return True
+    except Exception as exc:
+        logger.warning(
+            "turn_detector_plugin_registration_failed",
+            extra={
+                "reason": f"{type(exc).__name__}: {exc}"[:500],
+                "remote_eot": bool(remote_eot_url),
+            },
+        )
+        return False
 
 
 def _parse_room_voice_settings(room_metadata: str | None) -> dict[str, object]:
@@ -117,8 +421,38 @@ class VoiceAgent(Agent):
             )
         )
 
+    async def on_user_turn_completed(
+        self, turn_ctx: llm.ChatContext, new_message: llm.ChatMessage
+    ) -> None:
+        del turn_ctx
 
-server = AgentServer()
+        text = (new_message.text_content or "").strip()
+        suppress, details = _should_suppress_fragment_turn(text)
+        if not suppress:
+            return
+
+        logger.info(
+            "suppressing_fragment_turn",
+            extra={
+                "transcript": text[:200],
+                "normalized_text": details["normalized_text"],
+                "word_count": details["word_count"],
+                "char_count": details["char_count"],
+                "reason": details["reason"],
+            },
+        )
+        raise StopResponse()
+
+
+TURN_DETECTOR_PLUGIN_READY = _register_turn_detector_plugin_if_available()
+
+
+server = AgentServer(
+    num_idle_processes=NUM_IDLE_PROCESSES,
+    job_memory_warn_mb=JOB_MEMORY_WARN_MB,
+    job_memory_limit_mb=JOB_MEMORY_LIMIT_MB,
+    shutdown_process_timeout=SHUTDOWN_PROCESS_TIMEOUT_SEC,
+)
 
 
 @server.rtc_session(agent_name=AGENT_NAME)
@@ -186,6 +520,13 @@ async def entrypoint(ctx: agents.JobContext):
             "tts_voice": resolved_tts_voice or None,
             "turn_detection": turn_detection_mode,
             "session_kwargs": session_kwargs_log,
+            "fragment_turn_suppression": {
+                "enabled": SUPPRESS_FRAGMENT_TURNS,
+                "max_words": FRAGMENT_TURN_MAX_WORDS,
+                "max_chars": FRAGMENT_TURN_MAX_CHARS,
+                "allowlist_size": len(FRAGMENT_TURN_ALLOWLIST),
+                "blocklist_size": len(FRAGMENT_TURN_BLOCKLIST),
+            },
         },
     )
 
@@ -204,6 +545,65 @@ async def entrypoint(ctx: agents.JobContext):
     )
     voice_agent = VoiceAgent()
     context_lock = asyncio.Lock()
+    last_llm_failure_announcement_at = 0.0
+    room_cleanup_task: asyncio.Task[None] | None = None
+    session_started_at = time.monotonic()
+    last_activity_at = time.monotonic()
+    idle_timeout_triggered = False
+    last_final_user_transcript_key: str | None = None
+    last_final_user_transcript_speaker: str | None = None
+    last_final_user_transcript_at = 0.0
+
+    def touch_activity() -> None:
+        nonlocal last_activity_at
+        last_activity_at = time.monotonic()
+
+    def reset_final_transcript_dedupe() -> None:
+        nonlocal last_final_user_transcript_key
+        nonlocal last_final_user_transcript_speaker
+        nonlocal last_final_user_transcript_at
+        last_final_user_transcript_key = None
+        last_final_user_transcript_speaker = None
+        last_final_user_transcript_at = 0.0
+
+    def is_duplicate_final_transcript(ev: voice_events.UserInputTranscribedEvent) -> bool:
+        nonlocal last_final_user_transcript_key
+        nonlocal last_final_user_transcript_speaker
+        nonlocal last_final_user_transcript_at
+
+        if not ev.is_final or STT_FINAL_DEDUP_WINDOW_SEC <= 0:
+            return False
+
+        transcript_key = _normalize_transcript_key(ev.transcript)
+        if not transcript_key:
+            return False
+
+        speaker_key = str(ev.speaker_id or "").strip() or None
+        created_at = float(getattr(ev, "created_at", 0.0) or time.time())
+        is_duplicate = (
+            transcript_key == last_final_user_transcript_key
+            and speaker_key == last_final_user_transcript_speaker
+            and created_at >= last_final_user_transcript_at
+            and created_at - last_final_user_transcript_at <= STT_FINAL_DEDUP_WINDOW_SEC
+        )
+
+        last_final_user_transcript_key = transcript_key
+        last_final_user_transcript_speaker = speaker_key
+        last_final_user_transcript_at = created_at
+        return is_duplicate
+
+    def log_session_metric(event: str, **extra: object) -> None:
+        room_name = str(getattr(ctx.room, "name", "") or "").strip() or None
+        logger.info(
+            "session_metric",
+            extra={
+                "event": event,
+                "room": room_name,
+                "session_age_sec": round(time.monotonic() - session_started_at, 1),
+                "idle_for_sec": round(time.monotonic() - last_activity_at, 1),
+                **extra,
+            },
+        )
 
     async def publish_debug_event(payload: dict[str, object], *, reliable: bool = True) -> None:
         if not DEBUG_DATA_ENABLED or not DEBUG_DATA_TOPIC:
@@ -227,6 +627,74 @@ async def entrypoint(ctx: agents.JobContext):
 
     def schedule_publish(payload: dict[str, object]) -> None:
         asyncio.create_task(publish_debug_event(payload), name="publish_debug_event")
+
+    def schedule_room_cleanup(
+        trigger_reason: str,
+        *,
+        delay: float = 0.0,
+        force: bool = False,
+    ) -> None:
+        nonlocal room_cleanup_task
+
+        room_name = str(getattr(ctx.room, "name", "") or "").strip()
+        if not room_name:
+            return
+
+        if room_cleanup_task and not room_cleanup_task.done():
+            return
+
+        log_session_metric(
+            "cleanup_scheduled",
+            trigger_reason=trigger_reason,
+            delay_sec=delay,
+            force=force,
+        )
+
+        async def run_room_cleanup() -> None:
+            if delay > 0:
+                await asyncio.sleep(delay)
+            deleted = await _cleanup_room_if_empty(
+                room_name,
+                trigger_reason=trigger_reason,
+                force=force,
+            )
+            log_session_metric(
+                "cleanup_result",
+                trigger_reason=trigger_reason,
+                deleted=deleted,
+                force=force,
+            )
+            if deleted:
+                try:
+                    ctx.shutdown(f"empty_room_cleanup:{trigger_reason}")
+                except Exception:
+                    logger.exception(
+                        "Failed to request shutdown after empty-room cleanup",
+                        extra={"room": room_name, "trigger_reason": trigger_reason},
+                    )
+
+        room_cleanup_task = asyncio.create_task(
+            run_room_cleanup(),
+            name="cleanup_room_if_empty",
+        )
+
+    async def announce_llm_failure() -> None:
+        nonlocal last_llm_failure_announcement_at
+
+        now = time.monotonic()
+        if now - last_llm_failure_announcement_at < LLM_ERROR_SPOKEN_COOLDOWN_SEC:
+            return
+
+        last_llm_failure_announcement_at = now
+        message = _default_llm_failure_message(resolved_llm_model)
+
+        try:
+            await session.say(message, allow_interruptions=True, add_to_chat_ctx=False)
+        except Exception:
+            logger.exception(
+                "failed to speak llm failure notice",
+                extra={"llm_model": resolved_llm_model},
+            )
 
     async def apply_context(text: str, *, mode: str, request_id: str | None = None) -> None:
         async with context_lock:
@@ -442,14 +910,23 @@ async def entrypoint(ctx: agents.JobContext):
         if not raw:
             return
 
-        # If this *looks* like a control payload but was published on the wrong topic, log it.
-        if packet.topic != CONTROL_DATA_TOPIC:
-            if "owui.voice.control" in raw:
+        # Accept legacy clients that can't set LiveKit topics and publish on the empty/default topic.
+        # We still prefer the explicit CONTROL_DATA_TOPIC when available to avoid collisions.
+        topic = str(getattr(packet, "topic", "") or "").strip()
+        if topic != CONTROL_DATA_TOPIC:
+            if topic == "" and "owui.voice.control" in raw:
                 logger.warning(
-                    "Control payload received on wrong topic",
-                    extra={"topic": packet.topic, "identity": sender_identity},
+                    "Control payload received without topic; accepting for compatibility",
+                    extra={"expected_topic": CONTROL_DATA_TOPIC, "identity": sender_identity},
                 )
-            return
+            else:
+                # If this *looks* like a control payload but was published on the wrong topic, log it.
+                if "owui.voice.control" in raw:
+                    logger.warning(
+                        "Control payload received on wrong topic",
+                        extra={"topic": topic, "identity": sender_identity},
+                    )
+                return
 
         if sender_identity and not sender_identity.startswith("owui:"):
             logger.warning(
@@ -476,6 +953,7 @@ async def entrypoint(ctx: agents.JobContext):
         op = str(payload.get("op") or "").strip().lower()
         request_id = str(payload.get("request_id") or "").strip() or None
         if op == "context_set":
+            touch_activity()
             text = str(payload.get("text") or "")
             mode = str(payload.get("mode") or "replace").strip().lower()
             logger.info(
@@ -490,6 +968,7 @@ async def entrypoint(ctx: agents.JobContext):
             )
             asyncio.create_task(apply_context(text, mode=mode, request_id=request_id), name="context_set")
         elif op == "context_clear":
+            touch_activity()
             logger.info(
                 "control_context_clear",
                 extra={"identity": sender_identity, "topic": packet.topic, "request_id": request_id},
@@ -506,6 +985,7 @@ async def entrypoint(ctx: agents.JobContext):
 
     # Stream high-level agent/session signals to the browser demo via LiveKit data packets.
     def on_agent_state_changed(ev: voice_events.AgentStateChangedEvent) -> None:
+        touch_activity()
         logger.info(
             "agent_state_changed",
             extra={"old_state": ev.old_state, "new_state": ev.new_state},
@@ -519,6 +999,8 @@ async def entrypoint(ctx: agents.JobContext):
         )
 
     def on_user_state_changed(ev: voice_events.UserStateChangedEvent) -> None:
+        if ev.new_state == "speaking":
+            reset_final_transcript_dedupe()
         schedule_publish(
             {
                 "type": "owui.voice.event",
@@ -528,8 +1010,19 @@ async def entrypoint(ctx: agents.JobContext):
         )
 
     def on_user_input_transcribed(ev: voice_events.UserInputTranscribedEvent) -> None:
+        touch_activity()
         # Emitted for both partial and final transcripts.
         if ev.is_final:
+            if is_duplicate_final_transcript(ev):
+                logger.debug(
+                    "user_input_transcribed_final_duplicate",
+                    extra={
+                        "language": ev.language,
+                        "speaker_id": ev.speaker_id,
+                        "transcript": (ev.transcript or "")[:500],
+                    },
+                )
+                return
             logger.info(
                 "user_input_transcribed_final",
                 extra={
@@ -546,12 +1039,15 @@ async def entrypoint(ctx: agents.JobContext):
         )
 
     def on_conversation_item_added(ev: voice_events.ConversationItemAddedEvent) -> None:
+        touch_activity()
         # Only send a compact view to avoid huge payloads.
         item = ev.item
         payload: dict[str, object] = {
             "type": "owui.voice.event",
             "event": "conversation_item_added",
         }
+        if getattr(item, "role", None) == "assistant":
+            reset_final_transcript_dedupe()
         try:
             payload["data"] = {
                 "id": getattr(item, "id", None),
@@ -589,6 +1085,7 @@ async def entrypoint(ctx: agents.JobContext):
         )
 
     def on_speech_created(ev: voice_events.SpeechCreatedEvent) -> None:
+        touch_activity()
         speech = ev.speech_handle
         speech_info: dict[str, object]
         try:
@@ -638,7 +1135,25 @@ async def entrypoint(ctx: agents.JobContext):
             }
         )
 
+        try:
+            is_llm_error = getattr(err, "type", None) == "llm_error"
+            recoverable = bool(getattr(err, "recoverable", False))
+        except Exception:
+            is_llm_error = False
+            recoverable = False
+
+        if is_llm_error and not recoverable:
+            logger.warning(
+                "nonrecoverable_llm_error",
+                extra={
+                    "llm_model": resolved_llm_model,
+                    "error": str(exc) if exc is not None else str(err),
+                },
+            )
+            asyncio.create_task(announce_llm_failure(), name="announce_llm_failure")
+
     def on_function_tools_executed(ev: voice_events.FunctionToolsExecutedEvent) -> None:
+        touch_activity()
         def clip(value: str, max_len: int = 800) -> str:
             if len(value) <= max_len:
                 return value
@@ -689,10 +1204,17 @@ async def entrypoint(ctx: agents.JobContext):
         )
 
     def on_close(ev: voice_events.CloseEvent) -> None:
+        touch_activity()
         logger.warning(
             "session_close",
             extra={"reason": ev.reason, "error": str(ev.error) if ev.error else None},
         )
+        log_session_metric(
+            "close",
+            reason=str(ev.reason),
+            error=str(ev.error) if ev.error else None,
+        )
+        schedule_room_cleanup(str(ev.reason))
         schedule_publish(
             {
                 "type": "owui.voice.event",
@@ -716,6 +1238,72 @@ async def entrypoint(ctx: agents.JobContext):
     session.on("error", on_error)
     session.on("close", on_close)
 
+    def on_participant_disconnected(participant: rtc.RemoteParticipant) -> None:
+        touch_activity()
+        identity = str(getattr(participant, "identity", "") or "").strip()
+        if identity and not identity.startswith("agent-"):
+            log_session_metric(
+                "participant_disconnected",
+                participant_identity=identity,
+            )
+            schedule_room_cleanup(
+                f"participant_disconnected:{identity}",
+                delay=0.75,
+            )
+
+    async def idle_watchdog() -> None:
+        nonlocal idle_timeout_triggered
+
+        room_name = str(getattr(ctx.room, "name", "") or "").strip()
+        if (
+            SESSION_IDLE_TIMEOUT_SEC <= 0
+            or SESSION_IDLE_CHECK_INTERVAL_SEC <= 0
+            or not room_name
+        ):
+            return
+
+        try:
+            while True:
+                await asyncio.sleep(SESSION_IDLE_CHECK_INTERVAL_SEC)
+                idle_for = time.monotonic() - last_activity_at
+                if idle_for < SESSION_IDLE_TIMEOUT_SEC or idle_timeout_triggered:
+                    continue
+
+                idle_timeout_triggered = True
+                log_session_metric(
+                    "idle_timeout",
+                    timeout_sec=SESSION_IDLE_TIMEOUT_SEC,
+                    force_delete=SESSION_IDLE_FORCE_DELETE,
+                )
+                logger.warning(
+                    "session idle timeout exceeded",
+                    extra={
+                        "room": room_name,
+                        "idle_for_sec": round(idle_for, 1),
+                        "timeout_sec": SESSION_IDLE_TIMEOUT_SEC,
+                        "force_delete": SESSION_IDLE_FORCE_DELETE,
+                    },
+                )
+                try:
+                    await _cleanup_room_if_empty(
+                        room_name,
+                        trigger_reason="idle_timeout",
+                        force=SESSION_IDLE_FORCE_DELETE,
+                    )
+                finally:
+                    try:
+                        ctx.shutdown(f"idle_timeout:{int(idle_for)}")
+                    except Exception:
+                        logger.exception(
+                            "Failed to request shutdown after idle timeout",
+                            extra={"room": room_name},
+                        )
+                    return
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("Idle watchdog failed", extra={"room": room_name})
+
     schedule_publish(
         {
             "type": "owui.voice.event",
@@ -728,19 +1316,34 @@ async def entrypoint(ctx: agents.JobContext):
                 "stt_model": STT_MODEL,
                 "stt_language": STT_LANGUAGE,
                 "tts_model": TTS_MODEL,
+                "fragment_turn_suppression": {
+                    "enabled": SUPPRESS_FRAGMENT_TURNS,
+                    "max_words": FRAGMENT_TURN_MAX_WORDS,
+                    "max_chars": FRAGMENT_TURN_MAX_CHARS,
+                },
             },
         }
     )
 
+    ctx.room.on("participant_disconnected", on_participant_disconnected)
     ctx.room.on("data_received", on_data_received)
     await session.start(
         room=ctx.room,
         agent=voice_agent,
-        room_input_options=room_io.RoomInputOptions(close_on_disconnect=False),
+        room_input_options=room_io.RoomInputOptions(close_on_disconnect=True),
+    )
+    asyncio.create_task(idle_watchdog(), name="session_idle_watchdog")
+    touch_activity()
+    log_session_metric(
+        "started",
+        turn_detection=turn_detection_mode,
+        llm_model=resolved_llm_model,
+        tts_voice=resolved_tts_voice or None,
     )
     if STARTUP_MESSAGE:
         try:
             await session.say(STARTUP_MESSAGE, add_to_chat_ctx=False)
+            touch_activity()
         except Exception:
             logger.exception("startup TTS failed")
 
