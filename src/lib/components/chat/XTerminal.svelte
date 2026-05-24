@@ -271,5 +271,9 @@
 </script>
 
 <div class="h-full min-h-0 relative">
-	<div bind:this={terminalEl} class="absolute inset-0 p-1" class:pointer-events-none={overlay} />
+	<div
+		bind:this={terminalEl}
+		class="absolute inset-0 p-1"
+		class:pointer-events-none={overlay}
+	></div>
 </div>

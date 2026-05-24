@@ -445,7 +445,7 @@
                     
                     inline-block h-full"
 						style="height: {Math.min(100, Math.max(14, rms * 100))}%;"
-					/>
+					></div>
 				</div>
 			{/each}
 		</div>

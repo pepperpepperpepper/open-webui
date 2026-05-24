@@ -97,12 +97,12 @@
 	import ValvesModal from '../workspace/common/ValvesModal.svelte';
 	import PageEdit from '../icons/PageEdit.svelte';
 	import { goto } from '$app/navigation';
-		import InputModal from '../common/InputModal.svelte';
-		import Expand from '../icons/Expand.svelte';
-		import SendToLiveKit from '$lib/components/pepper/SendToLiveKit.svelte';
-		import QueuedMessageItem from './MessageInput/QueuedMessageItem.svelte';
+	import InputModal from '../common/InputModal.svelte';
+	import Expand from '../icons/Expand.svelte';
+	import SendToLiveKit from '$lib/components/pepper/SendToLiveKit.svelte';
+	import QueuedMessageItem from './MessageInput/QueuedMessageItem.svelte';
 
-		const i18n = getContext('i18n');
+	const i18n = getContext('i18n');
 
 	export let onUpload: Function = (e) => {};
 	export let onChange: Function = () => {};
@@ -1587,7 +1587,7 @@
 									{#if showWebSearchButton || showImageGenerationButton || showCodeInterpreterButton || showToolsButton || (toggleFilters && toggleFilters.length > 0)}
 										<div
 											class="flex self-center w-[1px] h-4 mx-1 bg-gray-200/50 dark:bg-gray-800/50"
-										/>
+										></div>
 
 										<IntegrationsMenu
 											selectedModels={atSelectedModel ? [atSelectedModel.id] : selectedModels}
@@ -1982,7 +1982,7 @@
 								{@html DOMPurify.sanitize(marked($config?.license_metadata?.input_footer))}
 							</div>
 						{:else}
-							<div class="mb-1" />
+							<div class="mb-1"></div>
 						{/if}
 					</form>
 				</div>

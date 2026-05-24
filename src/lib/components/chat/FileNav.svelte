@@ -1022,7 +1022,7 @@
 						class="h-1 cursor-row-resize hover:bg-blue-400/30 transition group relative"
 						on:mousedown={onHandleMouseDown}
 					>
-						<div class="absolute inset-x-0 -top-1 -bottom-1" />
+						<div class="absolute inset-x-0 -top-1 -bottom-1"></div>
 					</div>
 				{/if}
 
@@ -1052,7 +1052,7 @@
 								: terminalConnecting
 									? 'bg-yellow-500 animate-pulse'
 									: 'bg-gray-400'}"
-						/>
+						></div>
 					{/if}
 
 					<svg
