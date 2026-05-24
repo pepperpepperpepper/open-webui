@@ -39,7 +39,7 @@ from open_webui.routers.pipelines import (
 from open_webui.models.functions import Functions
 from open_webui.models.models import Models
 
-from open_webui.utils.models import get_all_models, check_model_access
+from open_webui.utils.models import get_all_models, check_model_access, get_model_meta
 from open_webui.utils.payload import convert_payload_openai_to_ollama
 from open_webui.utils.response import (
     convert_response_ollama_to_openai,
@@ -202,8 +202,9 @@ async def generate_chat_completion(
                 raise e
 
         if model.get("owned_by") == "arena":
-            model_ids = model.get("info", {}).get("meta", {}).get("model_ids")
-            filter_mode = model.get("info", {}).get("meta", {}).get("filter_mode")
+            model_meta = get_model_meta(model)
+            model_ids = model_meta.get("model_ids")
+            filter_mode = model_meta.get("filter_mode")
             if model_ids and filter_mode == "exclude":
                 model_ids = [
                     model["id"]

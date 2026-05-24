@@ -25,7 +25,6 @@ from sqlalchemy.orm import Session
 from open_webui.internal.db import get_session, SessionLocal
 
 from open_webui.constants import ERROR_MESSAGES
-from open_webui.retrieval.vector.factory import VECTOR_DB_CLIENT
 
 from open_webui.models.channels import Channels
 from open_webui.models.users import Users
@@ -39,13 +38,6 @@ from open_webui.models.chats import Chats
 from open_webui.models.knowledge import Knowledges
 from open_webui.models.groups import Groups
 from open_webui.models.access_grants import AccessGrants
-
-
-from open_webui.routers.retrieval import ProcessFileForm, process_file
-from open_webui.routers.audio import transcribe
-
-from open_webui.storage.provider import Storage
-
 
 from open_webui.config import BYPASS_ADMIN_ACCESS_CONTROL
 from open_webui.utils.auth import get_admin_user, get_verified_user
@@ -71,6 +63,8 @@ def _is_text_file(file_path: str, chunk_size: int = 8192) -> bool:
     (e.g. TypeScript .ts → video/mp2t) without maintaining an extension whitelist.
     """
     try:
+        from open_webui.storage.provider import Storage
+
         resolved = Storage.get_file(file_path)
         with open(resolved, "rb") as f:
             chunk = f.read(chunk_size)
@@ -95,6 +89,10 @@ def process_uploaded_file(
     db: Optional[Session] = None,
 ):
     def _process_handler(db_session):
+        from open_webui.routers.audio import transcribe
+        from open_webui.routers.retrieval import ProcessFileForm, process_file
+        from open_webui.storage.provider import Storage
+
         try:
             content_type = file.content_type
 
@@ -210,6 +208,8 @@ def upload_file_handler(
     file_metadata = metadata if metadata else {}
 
     try:
+        from open_webui.storage.provider import Storage
+
         unsanitized_filename = file.filename
         filename = os.path.basename(unsanitized_filename)
 
@@ -408,6 +408,9 @@ async def delete_all_files(
     result = Files.delete_all_files(db=db)
     if result:
         try:
+            from open_webui.retrieval.vector.factory import VECTOR_DB_CLIENT
+            from open_webui.storage.provider import Storage
+
             Storage.delete_all_files()
             VECTOR_DB_CLIENT.reset()
         except Exception as e:
@@ -579,6 +582,9 @@ def update_file_data_content_by_id(
         or has_access_to_file(id, "write", user, db=db)
     ):
         try:
+            from open_webui.routers.retrieval import ProcessFileForm, process_file
+            from open_webui.retrieval.vector.factory import VECTOR_DB_CLIENT
+
             process_file(
                 request,
                 ProcessFileForm(file_id=id, content=form_data.content),
@@ -647,6 +653,8 @@ async def get_file_content_by_id(
         or has_access_to_file(id, "read", user, db=db)
     ):
         try:
+            from open_webui.storage.provider import Storage
+
             file_path = Storage.get_file(file.path)
             file_path = Path(file_path)
 
@@ -726,6 +734,8 @@ async def get_html_file_content_by_id(
         or has_access_to_file(id, "read", user, db=db)
     ):
         try:
+            from open_webui.storage.provider import Storage
+
             file_path = Storage.get_file(file.path)
             file_path = Path(file_path)
 
@@ -781,6 +791,8 @@ async def get_file_content_by_id(
         }
 
         if file_path:
+            from open_webui.storage.provider import Storage
+
             file_path = Storage.get_file(file_path)
             file_path = Path(file_path)
 
@@ -837,6 +849,8 @@ async def delete_file_by_id(
     ):
 
         # Clean up KB associations and embeddings before deleting
+        from open_webui.retrieval.vector.factory import VECTOR_DB_CLIENT
+
         knowledges = Knowledges.get_knowledges_by_file_id(id, db=db)
         for knowledge in knowledges:
             # Remove KB-file relationship
@@ -856,6 +870,8 @@ async def delete_file_by_id(
         result = Files.delete_file_by_id(id, db=db)
         if result:
             try:
+                from open_webui.storage.provider import Storage
+
                 Storage.delete_file(file.path)
                 VECTOR_DB_CLIENT.delete(collection_name=f"file-{id}")
             except Exception as e:

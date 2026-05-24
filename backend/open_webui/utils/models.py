@@ -37,6 +37,50 @@ logging.basicConfig(stream=sys.stdout, level=GLOBAL_LOG_LEVEL)
 log = logging.getLogger(__name__)
 
 
+def normalize_model_dict(model: dict) -> dict:
+    if not isinstance(model, dict) or "info" not in model:
+        return model
+
+    info = model.get("info")
+    if not isinstance(info, dict):
+        model["info"] = {}
+        return model
+
+    if "meta" in info and not isinstance(info.get("meta"), dict):
+        info["meta"] = {}
+
+    if "params" in info and not isinstance(info.get("params"), dict):
+        info["params"] = {}
+
+    meta = info.get("meta")
+    if isinstance(meta, dict) and "capabilities" in meta and not isinstance(
+        meta.get("capabilities"), dict
+    ):
+        meta["capabilities"] = {}
+
+    return model
+
+
+def get_model_info(model: dict | None) -> dict:
+    info = model.get("info") if isinstance(model, dict) else None
+    return info if isinstance(info, dict) else {}
+
+
+def get_model_meta(model: dict | None) -> dict:
+    meta = get_model_info(model).get("meta")
+    return meta if isinstance(meta, dict) else {}
+
+
+def get_model_params(model: dict | None) -> dict:
+    params = get_model_info(model).get("params")
+    return params if isinstance(params, dict) else {}
+
+
+def get_model_capabilities(model: dict | None) -> dict:
+    capabilities = get_model_meta(model).get("capabilities")
+    return capabilities if isinstance(capabilities, dict) else {}
+
+
 async def fetch_ollama_models(request: Request, user: UserModel = None):
     raw_ollama_models = await ollama.get_all_models(request, user=user)
     return [
@@ -348,6 +392,8 @@ async def get_all_models(request, refresh: bool = False, user: UserModel = None)
         return 0
 
     for model in models:
+        normalize_model_dict(model)
+
         action_ids = [
             action_id
             for action_id in list(set(model.pop("action_ids", []) + global_action_ids))

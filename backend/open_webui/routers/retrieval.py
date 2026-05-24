@@ -1,15 +1,18 @@
+from __future__ import annotations
+
 import json
 import logging
 import mimetypes
 import os
 import shutil
 import asyncio
+from importlib import import_module
 
 import re
 import uuid
 from datetime import datetime
 from pathlib import Path
-from typing import Iterator, List, Optional, Sequence, Union
+from typing import TYPE_CHECKING, Iterator, List, Optional, Sequence, Union
 
 from fastapi import (
     Depends,
@@ -28,14 +31,6 @@ from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel
 import tiktoken
 
-
-from langchain_text_splitters import (
-    RecursiveCharacterTextSplitter,
-    TokenTextSplitter,
-    MarkdownHeaderTextSplitter,
-)
-from langchain_core.documents import Document
-
 from open_webui.models.files import FileModel, FileUpdateForm, Files
 from open_webui.utils.access_control.files import has_access_to_file
 from open_webui.models.knowledge import Knowledges
@@ -43,54 +38,6 @@ from open_webui.storage.provider import Storage
 from open_webui.internal.db import get_session, get_db
 from sqlalchemy.orm import Session
 
-
-from open_webui.retrieval.vector.factory import VECTOR_DB_CLIENT
-
-# Document loaders
-from open_webui.retrieval.loaders.main import Loader
-from open_webui.retrieval.loaders.youtube import YoutubeLoader
-
-# Web search engines
-from open_webui.retrieval.web.main import SearchResult
-from open_webui.retrieval.web.utils import get_web_loader
-from open_webui.retrieval.web.ollama import search_ollama_cloud
-from open_webui.retrieval.web.perplexity_search import search_perplexity_search
-from open_webui.retrieval.web.brave import search_brave
-from open_webui.retrieval.web.kagi import search_kagi
-from open_webui.retrieval.web.mojeek import search_mojeek
-from open_webui.retrieval.web.bocha import search_bocha
-from open_webui.retrieval.web.duckduckgo import search_duckduckgo
-from open_webui.retrieval.web.google_pse import search_google_pse
-from open_webui.retrieval.web.jina_search import search_jina
-from open_webui.retrieval.web.searchapi import search_searchapi
-from open_webui.retrieval.web.serpapi import search_serpapi
-from open_webui.retrieval.web.searxng import search_searxng
-from open_webui.retrieval.web.yacy import search_yacy
-from open_webui.retrieval.web.serper import search_serper
-from open_webui.retrieval.web.serply import search_serply
-from open_webui.retrieval.web.serpstack import search_serpstack
-from open_webui.retrieval.web.tavily import search_tavily
-from open_webui.retrieval.web.bing import search_bing
-from open_webui.retrieval.web.azure import search_azure
-from open_webui.retrieval.web.exa import search_exa
-from open_webui.retrieval.web.perplexity import search_perplexity
-from open_webui.retrieval.web.sougou import search_sougou
-from open_webui.retrieval.web.firecrawl import search_firecrawl
-from open_webui.retrieval.web.external import search_external
-from open_webui.retrieval.web.yandex import search_yandex
-from open_webui.retrieval.web.ydc import search_youcom
-
-from open_webui.retrieval.utils import (
-    get_content_from_url,
-    get_embedding_function,
-    get_reranking_function,
-    get_model_path,
-    query_collection,
-    query_collection_with_hybrid_search,
-    query_doc,
-    query_doc_with_hybrid_search,
-)
-from open_webui.retrieval.vector.utils import filter_metadata
 from open_webui.utils.misc import (
     calculate_sha256_string,
     sanitize_text_for_db,
@@ -122,6 +69,10 @@ from open_webui.env import (
 
 from open_webui.constants import ERROR_MESSAGES
 
+if TYPE_CHECKING:
+    from langchain_core.documents import Document
+    from open_webui.retrieval.web.main import SearchResult
+
 log = logging.getLogger(__name__)
 
 ##########################################
@@ -131,11 +82,117 @@ log = logging.getLogger(__name__)
 ##########################################
 
 
+def _get_document_class():
+    from langchain_core.documents import Document
+
+    return Document
+
+
+def _get_splitter_classes():
+    from langchain_text_splitters import (
+        MarkdownHeaderTextSplitter,
+        RecursiveCharacterTextSplitter,
+        TokenTextSplitter,
+    )
+
+    return RecursiveCharacterTextSplitter, TokenTextSplitter, MarkdownHeaderTextSplitter
+
+
+def _get_vector_db_client():
+    from open_webui.retrieval.vector.factory import VECTOR_DB_CLIENT
+
+    return VECTOR_DB_CLIENT
+
+
+def _get_loader_class():
+    from open_webui.retrieval.loaders.main import Loader
+
+    return Loader
+
+
+def _get_filter_metadata():
+    from open_webui.retrieval.vector.utils import filter_metadata
+
+    return filter_metadata
+
+
+def _get_retrieval_utils():
+    from open_webui.retrieval.utils import (
+        get_content_from_url,
+        get_embedding_function,
+        get_model_path,
+        get_reranking_function,
+        query_collection,
+        query_collection_with_hybrid_search,
+        query_doc,
+        query_doc_with_hybrid_search,
+    )
+
+    return {
+        "get_content_from_url": get_content_from_url,
+        "get_embedding_function": get_embedding_function,
+        "get_model_path": get_model_path,
+        "get_reranking_function": get_reranking_function,
+        "query_collection": query_collection,
+        "query_collection_with_hybrid_search": query_collection_with_hybrid_search,
+        "query_doc": query_doc,
+        "query_doc_with_hybrid_search": query_doc_with_hybrid_search,
+    }
+
+
+def _get_web_loader(*args, **kwargs):
+    from open_webui.retrieval.web.utils import get_web_loader
+
+    return get_web_loader(*args, **kwargs)
+
+
+def _call_web_search(module_name: str, attr_name: str, *args, **kwargs):
+    return getattr(import_module(module_name), attr_name)(*args, **kwargs)
+
+
+def get_content_from_url(*args, **kwargs):
+    return _get_retrieval_utils()["get_content_from_url"](*args, **kwargs)
+
+
+def get_embedding_function(*args, **kwargs):
+    return _get_retrieval_utils()["get_embedding_function"](*args, **kwargs)
+
+
+def get_reranking_function(*args, **kwargs):
+    return _get_retrieval_utils()["get_reranking_function"](*args, **kwargs)
+
+
+def get_model_path(*args, **kwargs):
+    return _get_retrieval_utils()["get_model_path"](*args, **kwargs)
+
+
+def query_collection(*args, **kwargs):
+    return _get_retrieval_utils()["query_collection"](*args, **kwargs)
+
+
+def query_collection_with_hybrid_search(*args, **kwargs):
+    return _get_retrieval_utils()["query_collection_with_hybrid_search"](
+        *args, **kwargs
+    )
+
+
+def query_doc(*args, **kwargs):
+    return _get_retrieval_utils()["query_doc"](*args, **kwargs)
+
+
+def query_doc_with_hybrid_search(*args, **kwargs):
+    return _get_retrieval_utils()["query_doc_with_hybrid_search"](*args, **kwargs)
+
+
+Document = _get_document_class()
+
+
 def get_ef(
     engine: str,
     embedding_model: str,
     auto_update: bool = RAG_EMBEDDING_MODEL_AUTO_UPDATE,
 ):
+    get_model_path = _get_retrieval_utils()["get_model_path"]
     ef = None
     if embedding_model and engine == "":
         from sentence_transformers import SentenceTransformer
@@ -168,6 +225,7 @@ def get_rf(
         int(external_reranker_timeout) if external_reranker_timeout else None
     )
     if reranking_model:
+        get_model_path = _get_retrieval_utils()["get_model_path"]
         if any(model in reranking_model for model in ["jinaai/jina-colbert-v2"]):
             try:
                 from open_webui.retrieval.models.colbert import ColBERT
@@ -401,6 +459,7 @@ async def update_embedding_config(
             request.app.state.config.RAG_EMBEDDING_MODEL,
         )
 
+        get_embedding_function = _get_retrieval_utils()["get_embedding_function"]
         request.app.state.EMBEDDING_FUNCTION = get_embedding_function(
             request.app.state.config.RAG_EMBEDDING_ENGINE,
             request.app.state.config.RAG_EMBEDDING_MODEL,
@@ -1012,6 +1071,9 @@ async def update_rag_config(
                     request.app.state.config.RAG_EXTERNAL_RERANKER_TIMEOUT,
                 )
 
+                get_reranking_function = _get_retrieval_utils()[
+                    "get_reranking_function"
+                ]
                 request.app.state.RERANKING_FUNCTION = get_reranking_function(
                     request.app.state.config.RAG_RERANKING_ENGINE,
                     request.app.state.config.RAG_RERANKING_MODEL,
@@ -1469,9 +1531,12 @@ def save_docs_to_vector_db(
         f"save_docs_to_vector_db: document {_get_docs_info(docs)} {collection_name}"
     )
 
+    Document = _get_document_class()
+    vector_db = _get_vector_db_client()
+
     # Check if entries with the same hash (metadata.hash) already exist
     if metadata and "hash" in metadata:
-        result = VECTOR_DB_CLIENT.query(
+        result = vector_db.query(
             collection_name=collection_name,
             filter={"hash": metadata["hash"]},
         )
@@ -1491,6 +1556,11 @@ def save_docs_to_vector_db(
                     raise ValueError(ERROR_MESSAGES.DUPLICATE_CONTENT)
 
     if split:
+        (
+            RecursiveCharacterTextSplitter,
+            TokenTextSplitter,
+            MarkdownHeaderTextSplitter,
+        ) = _get_splitter_classes()
         if request.app.state.config.ENABLE_MARKDOWN_HEADER_TEXT_SPLITTER:
             log.info("Using markdown header text splitter")
             # Define headers to split on - covering most common markdown header levels
@@ -1564,11 +1634,11 @@ def save_docs_to_vector_db(
     ]
 
     try:
-        if VECTOR_DB_CLIENT.has_collection(collection_name=collection_name):
+        if vector_db.has_collection(collection_name=collection_name):
             log.info(f"collection {collection_name} already exists")
 
             if overwrite:
-                VECTOR_DB_CLIENT.delete_collection(collection_name=collection_name)
+                vector_db.delete_collection(collection_name=collection_name)
                 log.info(f"deleting existing collection {collection_name}")
             elif add is False:
                 log.info(
@@ -1577,6 +1647,7 @@ def save_docs_to_vector_db(
                 return True
 
         log.info(f"generating embeddings for {collection_name}")
+        get_embedding_function = _get_retrieval_utils()["get_embedding_function"]
         embedding_function = get_embedding_function(
             request.app.state.config.RAG_EMBEDDING_ENGINE,
             request.app.state.config.RAG_EMBEDDING_MODEL,
@@ -1635,7 +1706,7 @@ def save_docs_to_vector_db(
         ]
 
         log.info(f"adding to collection {collection_name}")
-        VECTOR_DB_CLIENT.insert(
+        vector_db.insert(
             collection_name=collection_name,
             items=items,
         )
@@ -1673,6 +1744,10 @@ def process_file(
 
     if file:
         try:
+            Document = _get_document_class()
+            Loader = _get_loader_class()
+            filter_metadata = _get_filter_metadata()
+            vector_db = _get_vector_db_client()
 
             collection_name = form_data.collection_name
 
@@ -1685,9 +1760,7 @@ def process_file(
 
                 try:
                     # /files/{file_id}/data/content/update
-                    VECTOR_DB_CLIENT.delete_collection(
-                        collection_name=f"file-{file.id}"
-                    )
+                    vector_db.delete_collection(collection_name=f"file-{file.id}")
                 except:
                     # Audio file upload pipeline
                     pass
@@ -1710,7 +1783,7 @@ def process_file(
                 # Check if the file has already been processed and save the content
                 # Usage: /knowledge/{id}/file/add, /knowledge/{id}/file/update
 
-                result = VECTOR_DB_CLIENT.query(
+                result = vector_db.query(
                     collection_name=f"file-{file.id}", filter={"file_id": file.id}
                 )
 
@@ -1958,6 +2031,7 @@ async def process_web(
     user=Depends(get_verified_user),
 ):
     try:
+        get_content_from_url = _get_retrieval_utils()["get_content_from_url"]
         content, docs = await run_in_threadpool(
             get_content_from_url, request, form_data.url
         )
@@ -2035,7 +2109,9 @@ def search_web(
 
     # TODO: add playwright to search the web
     if engine == "ollama_cloud":
-        return search_ollama_cloud(
+        return _call_web_search(
+            "open_webui.retrieval.web.ollama",
+            "search_ollama_cloud",
             "https://ollama.com",
             request.app.state.config.OLLAMA_CLOUD_WEB_SEARCH_API_KEY,
             query,
@@ -2044,7 +2120,9 @@ def search_web(
         )
     elif engine == "perplexity_search":
         if request.app.state.config.PERPLEXITY_API_KEY:
-            return search_perplexity_search(
+            return _call_web_search(
+                "open_webui.retrieval.web.perplexity_search",
+                "search_perplexity_search",
                 request.app.state.config.PERPLEXITY_API_KEY,
                 query,
                 request.app.state.config.WEB_SEARCH_RESULT_COUNT,
@@ -2057,7 +2135,9 @@ def search_web(
     elif engine == "searxng":
         if request.app.state.config.SEARXNG_QUERY_URL:
             searxng_kwargs = {"language": request.app.state.config.SEARXNG_LANGUAGE}
-            return search_searxng(
+            return _call_web_search(
+                "open_webui.retrieval.web.searxng",
+                "search_searxng",
                 request.app.state.config.SEARXNG_QUERY_URL,
                 query,
                 request.app.state.config.WEB_SEARCH_RESULT_COUNT,
@@ -2068,7 +2148,9 @@ def search_web(
             raise Exception("No SEARXNG_QUERY_URL found in environment variables")
     elif engine == "yacy":
         if request.app.state.config.YACY_QUERY_URL:
-            return search_yacy(
+            return _call_web_search(
+                "open_webui.retrieval.web.yacy",
+                "search_yacy",
                 request.app.state.config.YACY_QUERY_URL,
                 request.app.state.config.YACY_USERNAME,
                 request.app.state.config.YACY_PASSWORD,
@@ -2083,7 +2165,9 @@ def search_web(
             request.app.state.config.GOOGLE_PSE_API_KEY
             and request.app.state.config.GOOGLE_PSE_ENGINE_ID
         ):
-            return search_google_pse(
+            return _call_web_search(
+                "open_webui.retrieval.web.google_pse",
+                "search_google_pse",
                 request.app.state.config.GOOGLE_PSE_API_KEY,
                 request.app.state.config.GOOGLE_PSE_ENGINE_ID,
                 query,
@@ -2097,7 +2181,9 @@ def search_web(
             )
     elif engine == "brave":
         if request.app.state.config.BRAVE_SEARCH_API_KEY:
-            return search_brave(
+            return _call_web_search(
+                "open_webui.retrieval.web.brave",
+                "search_brave",
                 request.app.state.config.BRAVE_SEARCH_API_KEY,
                 query,
                 request.app.state.config.WEB_SEARCH_RESULT_COUNT,
@@ -2107,7 +2193,9 @@ def search_web(
             raise Exception("No BRAVE_SEARCH_API_KEY found in environment variables")
     elif engine == "kagi":
         if request.app.state.config.KAGI_SEARCH_API_KEY:
-            return search_kagi(
+            return _call_web_search(
+                "open_webui.retrieval.web.kagi",
+                "search_kagi",
                 request.app.state.config.KAGI_SEARCH_API_KEY,
                 query,
                 request.app.state.config.WEB_SEARCH_RESULT_COUNT,
@@ -2117,7 +2205,9 @@ def search_web(
             raise Exception("No KAGI_SEARCH_API_KEY found in environment variables")
     elif engine == "mojeek":
         if request.app.state.config.MOJEEK_SEARCH_API_KEY:
-            return search_mojeek(
+            return _call_web_search(
+                "open_webui.retrieval.web.mojeek",
+                "search_mojeek",
                 request.app.state.config.MOJEEK_SEARCH_API_KEY,
                 query,
                 request.app.state.config.WEB_SEARCH_RESULT_COUNT,
@@ -2127,7 +2217,9 @@ def search_web(
             raise Exception("No MOJEEK_SEARCH_API_KEY found in environment variables")
     elif engine == "bocha":
         if request.app.state.config.BOCHA_SEARCH_API_KEY:
-            return search_bocha(
+            return _call_web_search(
+                "open_webui.retrieval.web.bocha",
+                "search_bocha",
                 request.app.state.config.BOCHA_SEARCH_API_KEY,
                 query,
                 request.app.state.config.WEB_SEARCH_RESULT_COUNT,
@@ -2137,7 +2229,9 @@ def search_web(
             raise Exception("No BOCHA_SEARCH_API_KEY found in environment variables")
     elif engine == "serpstack":
         if request.app.state.config.SERPSTACK_API_KEY:
-            return search_serpstack(
+            return _call_web_search(
+                "open_webui.retrieval.web.serpstack",
+                "search_serpstack",
                 request.app.state.config.SERPSTACK_API_KEY,
                 query,
                 request.app.state.config.WEB_SEARCH_RESULT_COUNT,
@@ -2148,7 +2242,9 @@ def search_web(
             raise Exception("No SERPSTACK_API_KEY found in environment variables")
     elif engine == "serper":
         if request.app.state.config.SERPER_API_KEY:
-            return search_serper(
+            return _call_web_search(
+                "open_webui.retrieval.web.serper",
+                "search_serper",
                 request.app.state.config.SERPER_API_KEY,
                 query,
                 request.app.state.config.WEB_SEARCH_RESULT_COUNT,
@@ -2158,7 +2254,9 @@ def search_web(
             raise Exception("No SERPER_API_KEY found in environment variables")
     elif engine == "serply":
         if request.app.state.config.SERPLY_API_KEY:
-            return search_serply(
+            return _call_web_search(
+                "open_webui.retrieval.web.serply",
+                "search_serply",
                 request.app.state.config.SERPLY_API_KEY,
                 query,
                 request.app.state.config.WEB_SEARCH_RESULT_COUNT,
@@ -2167,7 +2265,9 @@ def search_web(
         else:
             raise Exception("No SERPLY_API_KEY found in environment variables")
     elif engine == "duckduckgo":
-        return search_duckduckgo(
+        return _call_web_search(
+            "open_webui.retrieval.web.duckduckgo",
+            "search_duckduckgo",
             query,
             request.app.state.config.WEB_SEARCH_RESULT_COUNT,
             request.app.state.config.WEB_SEARCH_DOMAIN_FILTER_LIST,
@@ -2176,7 +2276,9 @@ def search_web(
         )
     elif engine == "tavily":
         if request.app.state.config.TAVILY_API_KEY:
-            return search_tavily(
+            return _call_web_search(
+                "open_webui.retrieval.web.tavily",
+                "search_tavily",
                 request.app.state.config.TAVILY_API_KEY,
                 query,
                 request.app.state.config.WEB_SEARCH_RESULT_COUNT,
@@ -2186,7 +2288,9 @@ def search_web(
             raise Exception("No TAVILY_API_KEY found in environment variables")
     elif engine == "exa":
         if request.app.state.config.EXA_API_KEY:
-            return search_exa(
+            return _call_web_search(
+                "open_webui.retrieval.web.exa",
+                "search_exa",
                 request.app.state.config.EXA_API_KEY,
                 query,
                 request.app.state.config.WEB_SEARCH_RESULT_COUNT,
@@ -2196,7 +2300,9 @@ def search_web(
             raise Exception("No EXA_API_KEY found in environment variables")
     elif engine == "searchapi":
         if request.app.state.config.SEARCHAPI_API_KEY:
-            return search_searchapi(
+            return _call_web_search(
+                "open_webui.retrieval.web.searchapi",
+                "search_searchapi",
                 request.app.state.config.SEARCHAPI_API_KEY,
                 request.app.state.config.SEARCHAPI_ENGINE,
                 query,
@@ -2207,7 +2313,9 @@ def search_web(
             raise Exception("No SEARCHAPI_API_KEY found in environment variables")
     elif engine == "serpapi":
         if request.app.state.config.SERPAPI_API_KEY:
-            return search_serpapi(
+            return _call_web_search(
+                "open_webui.retrieval.web.serpapi",
+                "search_serpapi",
                 request.app.state.config.SERPAPI_API_KEY,
                 request.app.state.config.SERPAPI_ENGINE,
                 query,
@@ -2217,14 +2325,18 @@ def search_web(
         else:
             raise Exception("No SERPAPI_API_KEY found in environment variables")
     elif engine == "jina":
-        return search_jina(
+        return _call_web_search(
+            "open_webui.retrieval.web.jina_search",
+            "search_jina",
             request.app.state.config.JINA_API_KEY,
             query,
             request.app.state.config.WEB_SEARCH_RESULT_COUNT,
             request.app.state.config.JINA_API_BASE_URL,
         )
     elif engine == "bing":
-        return search_bing(
+        return _call_web_search(
+            "open_webui.retrieval.web.bing",
+            "search_bing",
             request.app.state.config.BING_SEARCH_V7_SUBSCRIPTION_KEY,
             request.app.state.config.BING_SEARCH_V7_ENDPOINT,
             str(DEFAULT_LOCALE),
@@ -2238,7 +2350,9 @@ def search_web(
             and request.app.state.config.AZURE_AI_SEARCH_ENDPOINT
             and request.app.state.config.AZURE_AI_SEARCH_INDEX_NAME
         ):
-            return search_azure(
+            return _call_web_search(
+                "open_webui.retrieval.web.azure",
+                "search_azure",
                 request.app.state.config.AZURE_AI_SEARCH_API_KEY,
                 request.app.state.config.AZURE_AI_SEARCH_ENDPOINT,
                 request.app.state.config.AZURE_AI_SEARCH_INDEX_NAME,
@@ -2251,14 +2365,18 @@ def search_web(
                 "AZURE_AI_SEARCH_API_KEY, AZURE_AI_SEARCH_ENDPOINT, and AZURE_AI_SEARCH_INDEX_NAME are required for Azure AI Search"
             )
     elif engine == "exa":
-        return search_exa(
+        return _call_web_search(
+            "open_webui.retrieval.web.exa",
+            "search_exa",
             request.app.state.config.EXA_API_KEY,
             query,
             request.app.state.config.WEB_SEARCH_RESULT_COUNT,
             request.app.state.config.WEB_SEARCH_DOMAIN_FILTER_LIST,
         )
     elif engine == "perplexity":
-        return search_perplexity(
+        return _call_web_search(
+            "open_webui.retrieval.web.perplexity",
+            "search_perplexity",
             request.app.state.config.PERPLEXITY_API_KEY,
             query,
             request.app.state.config.WEB_SEARCH_RESULT_COUNT,
@@ -2271,7 +2389,9 @@ def search_web(
             request.app.state.config.SOUGOU_API_SID
             and request.app.state.config.SOUGOU_API_SK
         ):
-            return search_sougou(
+            return _call_web_search(
+                "open_webui.retrieval.web.sougou",
+                "search_sougou",
                 request.app.state.config.SOUGOU_API_SID,
                 request.app.state.config.SOUGOU_API_SK,
                 query,
@@ -2283,7 +2403,9 @@ def search_web(
                 "No SOUGOU_API_SID or SOUGOU_API_SK found in environment variables"
             )
     elif engine == "firecrawl":
-        return search_firecrawl(
+        return _call_web_search(
+            "open_webui.retrieval.web.firecrawl",
+            "search_firecrawl",
             request.app.state.config.FIRECRAWL_API_BASE_URL,
             request.app.state.config.FIRECRAWL_API_KEY,
             query,
@@ -2291,7 +2413,9 @@ def search_web(
             request.app.state.config.WEB_SEARCH_DOMAIN_FILTER_LIST,
         )
     elif engine == "external":
-        return search_external(
+        return _call_web_search(
+            "open_webui.retrieval.web.external",
+            "search_external",
             request,
             request.app.state.config.EXTERNAL_WEB_SEARCH_URL,
             request.app.state.config.EXTERNAL_WEB_SEARCH_API_KEY,
@@ -2301,7 +2425,9 @@ def search_web(
             user=user,
         )
     elif engine == "yandex":
-        return search_yandex(
+        return _call_web_search(
+            "open_webui.retrieval.web.yandex",
+            "search_yandex",
             request,
             request.app.state.config.YANDEX_WEB_SEARCH_URL,
             request.app.state.config.YANDEX_WEB_SEARCH_API_KEY,
@@ -2312,7 +2438,9 @@ def search_web(
             user=user,
         )
     elif engine == "youcom":
-        return search_youcom(
+        return _call_web_search(
+            "open_webui.retrieval.web.ydc",
+            "search_youcom",
             request.app.state.config.YOUCOM_API_KEY,
             query,
             request.app.state.config.WEB_SEARCH_RESULT_COUNT,
@@ -2429,7 +2557,7 @@ async def process_web_search(
                 if hasattr(result, "snippet") and result.snippet is not None
             ]
         else:
-            loader = get_web_loader(
+            loader = _get_web_loader(
                 urls,
                 verify_ssl=request.app.state.config.ENABLE_WEB_LOADER_SSL_VERIFICATION,
                 requests_per_second=request.app.state.config.WEB_LOADER_CONCURRENT_REQUESTS,
@@ -2540,14 +2668,16 @@ async def query_doc_handler(
     _validate_collection_access([form_data.collection_name], user)
 
     try:
+        retrieval_utils = _get_retrieval_utils()
+        vector_db = _get_vector_db_client()
         if request.app.state.config.ENABLE_RAG_HYBRID_SEARCH and (
             form_data.hybrid is None or form_data.hybrid
         ):
             collection_results = {}
-            collection_results[form_data.collection_name] = VECTOR_DB_CLIENT.get(
+            collection_results[form_data.collection_name] = vector_db.get(
                 collection_name=form_data.collection_name
             )
-            return await query_doc_with_hybrid_search(
+            return await retrieval_utils["query_doc_with_hybrid_search"](
                 collection_name=form_data.collection_name,
                 collection_result=collection_results[form_data.collection_name],
                 query=form_data.query,
@@ -2582,7 +2712,7 @@ async def query_doc_handler(
             query_embedding = await request.app.state.EMBEDDING_FUNCTION(
                 form_data.query, prefix=RAG_EMBEDDING_QUERY_PREFIX, user=user
             )
-            return query_doc(
+            return retrieval_utils["query_doc"](
                 collection_name=form_data.collection_name,
                 query_embedding=query_embedding,
                 k=form_data.k if form_data.k else request.app.state.config.TOP_K,
@@ -2616,10 +2746,11 @@ async def query_collection_handler(
     _validate_collection_access(form_data.collection_names, user)
 
     try:
+        retrieval_utils = _get_retrieval_utils()
         if request.app.state.config.ENABLE_RAG_HYBRID_SEARCH and (
             form_data.hybrid is None or form_data.hybrid
         ):
-            return await query_collection_with_hybrid_search(
+            return await retrieval_utils["query_collection_with_hybrid_search"](
                 collection_names=form_data.collection_names,
                 queries=[form_data.query],
                 embedding_function=lambda query, prefix: request.app.state.EMBEDDING_FUNCTION(
@@ -2654,7 +2785,7 @@ async def query_collection_handler(
                 ),
             )
         else:
-            return await query_collection(
+            return await retrieval_utils["query_collection"](
                 collection_names=form_data.collection_names,
                 queries=[form_data.query],
                 embedding_function=lambda query, prefix: request.app.state.EMBEDDING_FUNCTION(
@@ -2690,7 +2821,8 @@ def delete_entries_from_collection(
     db: Session = Depends(get_session),
 ):
     try:
-        if VECTOR_DB_CLIENT.has_collection(collection_name=form_data.collection_name):
+        vector_db = _get_vector_db_client()
+        if vector_db.has_collection(collection_name=form_data.collection_name):
             file = Files.get_file_by_id(form_data.file_id, db=db)
             if not file:
                 raise HTTPException(
@@ -2699,7 +2831,7 @@ def delete_entries_from_collection(
                 )
             hash = file.hash
 
-            VECTOR_DB_CLIENT.delete(
+            vector_db.delete(
                 collection_name=form_data.collection_name,
                 metadata={"hash": hash},
             )
@@ -2713,7 +2845,7 @@ def delete_entries_from_collection(
 
 @router.post("/reset/db")
 def reset_vector_db(user=Depends(get_admin_user), db: Session = Depends(get_session)):
-    VECTOR_DB_CLIENT.reset()
+    _get_vector_db_client().reset()
     Knowledges.delete_all_knowledge(db=db)
 
 

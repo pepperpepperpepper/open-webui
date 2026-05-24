@@ -6,9 +6,6 @@ import re
 from abc import ABC, abstractmethod
 from typing import BinaryIO, Tuple, Dict
 
-import boto3
-from botocore.config import Config
-from botocore.exceptions import ClientError
 from open_webui.config import (
     S3_ACCESS_KEY_ID,
     S3_BUCKET_NAME,
@@ -27,12 +24,7 @@ from open_webui.config import (
     STORAGE_PROVIDER,
     UPLOAD_DIR,
 )
-from google.cloud import storage
-from google.cloud.exceptions import GoogleCloudError, NotFound
 from open_webui.constants import ERROR_MESSAGES
-from azure.identity import DefaultAzureCredential
-from azure.storage.blob import BlobServiceClient
-from azure.core.exceptions import ResourceNotFoundError
 
 log = logging.getLogger(__name__)
 
@@ -104,6 +96,11 @@ class LocalStorageProvider(StorageProvider):
 
 class S3StorageProvider(StorageProvider):
     def __init__(self):
+        import boto3
+        from botocore.config import Config
+        from botocore.exceptions import ClientError
+
+        self._client_error = ClientError
         config = Config(
             s3={
                 "use_accelerate_endpoint": S3_USE_ACCELERATE_ENDPOINT,
@@ -169,7 +166,7 @@ class S3StorageProvider(StorageProvider):
                 open(file_path, "rb").read(),
                 f"s3://{self.bucket_name}/{s3_key}",
             )
-        except ClientError as e:
+        except self._client_error as e:
             raise RuntimeError(f"Error uploading file to S3: {e}")
 
     def get_file(self, file_path: str) -> str:
@@ -179,7 +176,7 @@ class S3StorageProvider(StorageProvider):
             local_file_path = self._get_local_file_path(s3_key)
             self.s3_client.download_file(self.bucket_name, s3_key, local_file_path)
             return local_file_path
-        except ClientError as e:
+        except self._client_error as e:
             raise RuntimeError(f"Error downloading file from S3: {e}")
 
     def delete_file(self, file_path: str) -> None:
@@ -187,7 +184,7 @@ class S3StorageProvider(StorageProvider):
         try:
             s3_key = self._extract_s3_key(file_path)
             self.s3_client.delete_object(Bucket=self.bucket_name, Key=s3_key)
-        except ClientError as e:
+        except self._client_error as e:
             raise RuntimeError(f"Error deleting file from S3: {e}")
 
         # Always delete from local storage
@@ -206,7 +203,7 @@ class S3StorageProvider(StorageProvider):
                     self.s3_client.delete_object(
                         Bucket=self.bucket_name, Key=content["Key"]
                     )
-        except ClientError as e:
+        except self._client_error as e:
             raise RuntimeError(f"Error deleting all files from S3: {e}")
 
         # Always delete from local storage
@@ -222,6 +219,11 @@ class S3StorageProvider(StorageProvider):
 
 class GCSStorageProvider(StorageProvider):
     def __init__(self):
+        from google.cloud import storage
+        from google.cloud.exceptions import GoogleCloudError, NotFound
+
+        self._google_cloud_error = GoogleCloudError
+        self._not_found_error = NotFound
         self.bucket_name = GCS_BUCKET_NAME
 
         if GOOGLE_APPLICATION_CREDENTIALS_JSON:
@@ -244,7 +246,7 @@ class GCSStorageProvider(StorageProvider):
             blob = self.bucket.blob(filename)
             blob.upload_from_filename(file_path)
             return contents, "gs://" + self.bucket_name + "/" + filename
-        except GoogleCloudError as e:
+        except self._google_cloud_error as e:
             raise RuntimeError(f"Error uploading file to GCS: {e}")
 
     def get_file(self, file_path: str) -> str:
@@ -256,7 +258,7 @@ class GCSStorageProvider(StorageProvider):
             blob.download_to_filename(local_file_path)
 
             return local_file_path
-        except NotFound as e:
+        except self._not_found_error as e:
             raise RuntimeError(f"Error downloading file from GCS: {e}")
 
     def delete_file(self, file_path: str) -> None:
@@ -265,7 +267,7 @@ class GCSStorageProvider(StorageProvider):
             filename = file_path.removeprefix("gs://").split("/")[1]
             blob = self.bucket.get_blob(filename)
             blob.delete()
-        except NotFound as e:
+        except self._not_found_error as e:
             raise RuntimeError(f"Error deleting file from GCS: {e}")
 
         # Always delete from local storage
@@ -279,7 +281,7 @@ class GCSStorageProvider(StorageProvider):
             for blob in blobs:
                 blob.delete()
 
-        except NotFound as e:
+        except self._not_found_error as e:
             raise RuntimeError(f"Error deleting all files from GCS: {e}")
 
         # Always delete from local storage
@@ -288,6 +290,11 @@ class GCSStorageProvider(StorageProvider):
 
 class AzureStorageProvider(StorageProvider):
     def __init__(self):
+        from azure.core.exceptions import ResourceNotFoundError
+        from azure.identity import DefaultAzureCredential
+        from azure.storage.blob import BlobServiceClient
+
+        self._resource_not_found_error = ResourceNotFoundError
         self.endpoint = AZURE_STORAGE_ENDPOINT
         self.container_name = AZURE_STORAGE_CONTAINER_NAME
         storage_key = AZURE_STORAGE_KEY
@@ -328,7 +335,7 @@ class AzureStorageProvider(StorageProvider):
             with open(local_file_path, "wb") as download_file:
                 download_file.write(blob_client.download_blob().readall())
             return local_file_path
-        except ResourceNotFoundError as e:
+        except self._resource_not_found_error as e:
             raise RuntimeError(f"Error downloading file from Azure Blob Storage: {e}")
 
     def delete_file(self, file_path: str) -> None:
@@ -337,7 +344,7 @@ class AzureStorageProvider(StorageProvider):
             filename = file_path.split("/")[-1]
             blob_client = self.container_client.get_blob_client(filename)
             blob_client.delete_blob()
-        except ResourceNotFoundError as e:
+        except self._resource_not_found_error as e:
             raise RuntimeError(f"Error deleting file from Azure Blob Storage: {e}")
 
         # Always delete from local storage
@@ -370,4 +377,18 @@ def get_storage_provider(storage_provider: str):
     return Storage
 
 
-Storage = get_storage_provider(STORAGE_PROVIDER)
+class LazyStorageProviderProxy:
+    def __init__(self, storage_provider: str):
+        self._storage_provider = storage_provider
+        self._provider = None
+
+    def _get_provider(self):
+        if self._provider is None:
+            self._provider = get_storage_provider(self._storage_provider)
+        return self._provider
+
+    def __getattr__(self, name: str):
+        return getattr(self._get_provider(), name)
+
+
+Storage = LazyStorageProviderProxy(STORAGE_PROVIDER)

@@ -111,6 +111,7 @@ from open_webui.utils.filter import (
     process_filter_functions,
 )
 from open_webui.utils.code_interpreter import execute_code_jupyter
+from open_webui.utils.models import get_model_capabilities, get_model_meta
 from open_webui.utils.payload import apply_system_prompt_to_body
 from open_webui.utils.response import normalize_usage
 from open_webui.utils.mcp.client import MCPClient
@@ -2343,7 +2344,8 @@ async def process_chat_payload(request, form_data, user, metadata, model):
 
     # Model "Knowledge" handling
     user_message = get_last_user_message(form_data["messages"])
-    model_knowledge = model.get("info", {}).get("meta", {}).get("knowledge", False)
+    model_meta = get_model_meta(model)
+    model_knowledge = model_meta.get("knowledge", False)
 
     if (
         model_knowledge

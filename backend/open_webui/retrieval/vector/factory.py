@@ -85,4 +85,17 @@ class Vector:
                 raise ValueError(f"Unsupported vector type: {vector_type}")
 
 
-VECTOR_DB_CLIENT = Vector.get_vector(VECTOR_DB)
+class LazyVectorDBClient:
+    def __init__(self):
+        self._client = None
+
+    def _get_client(self) -> VectorDBBase:
+        if self._client is None:
+            self._client = Vector.get_vector(VECTOR_DB)
+        return self._client
+
+    def __getattr__(self, name: str):
+        return getattr(self._get_client(), name)
+
+
+VECTOR_DB_CLIENT = LazyVectorDBClient()

@@ -23,6 +23,7 @@ from open_webui.constants import TASKS
 from open_webui.routers.pipelines import process_pipeline_inlet_filter
 
 from open_webui.utils.task import get_task_model_id
+from open_webui.utils.models import get_model_params
 
 from open_webui.config import (
     DEFAULT_TITLE_GENERATION_PROMPT_TEMPLATE,
@@ -220,9 +221,7 @@ async def generate_title(
 
     content = title_generation_template(template, form_data["messages"], user)
 
-    max_tokens = (
-        models[task_model_id].get("info", {}).get("params", {}).get("max_tokens", 1000)
-    )
+    max_tokens = get_model_params(models[task_model_id]).get("max_tokens", 1000)
 
     payload = {
         "model": task_model_id,

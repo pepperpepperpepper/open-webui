@@ -47,6 +47,42 @@ def is_valid_model_id(model_id: str) -> bool:
     return model_id and len(model_id) <= 256
 
 
+def _get_cached_model(request: Request, model_id: str) -> Optional[dict]:
+    models = getattr(request.app.state, "MODELS", None)
+    if models is None or not hasattr(models, "get"):
+        return None
+    return models.get(model_id)
+
+
+def _get_profile_image_url(model) -> Optional[str]:
+    if model is None:
+        return None
+
+    if isinstance(model, dict):
+        info = model.get("info") or {}
+        if not isinstance(info, dict):
+            return None
+
+        meta = info.get("meta") or {}
+        if isinstance(meta, dict):
+            profile_image_url = meta.get("profile_image_url")
+            return profile_image_url if isinstance(profile_image_url, str) else None
+
+        profile_image_url = getattr(meta, "profile_image_url", None)
+        return profile_image_url if isinstance(profile_image_url, str) else None
+
+    meta = getattr(model, "meta", None)
+    if meta is None:
+        return None
+
+    if isinstance(meta, dict):
+        profile_image_url = meta.get("profile_image_url")
+        return profile_image_url if isinstance(profile_image_url, str) else None
+
+    profile_image_url = getattr(meta, "profile_image_url", None)
+    return profile_image_url if isinstance(profile_image_url, str) else None
+
+
 ###########################
 # GetModels
 ###########################
@@ -386,40 +422,48 @@ async def get_model_by_id(
 
 
 @router.get("/model/profile/image")
-def get_model_profile_image(id: str, user=Depends(get_verified_user)):
-    model = Models.get_model_by_id(id)
+def get_model_profile_image(
+    request: Request,
+    id: Optional[str] = None,
+    user=Depends(get_verified_user),
+    db: Session = Depends(get_session),
+):
+    fallback_path = str(STATIC_DIR / "favicon.png")
+    if not id:
+        return FileResponse(fallback_path)
 
-    if model:
-        etag = f'"{model.updated_at}"' if model.updated_at else None
+    model = _get_cached_model(request, id) or Models.get_model_by_id(id, db=db)
+    etag = None
+    if getattr(model, "updated_at", None):
+        etag = f'"{model.updated_at}"'
 
-        if model.meta.profile_image_url:
-            if model.meta.profile_image_url.startswith("http"):
-                return Response(
-                    status_code=status.HTTP_302_FOUND,
-                    headers={"Location": model.meta.profile_image_url},
+    profile_image_url = _get_profile_image_url(model)
+    if profile_image_url:
+        if profile_image_url.startswith("data:image"):
+            try:
+                header, base64_data = profile_image_url.split(",", 1)
+                image_data = base64.b64decode(base64_data)
+                image_buffer = io.BytesIO(image_data)
+                media_type = header.split(";")[0].lstrip("data:")
+
+                headers = {"Content-Disposition": "inline"}
+                if etag:
+                    headers["ETag"] = etag
+
+                return StreamingResponse(
+                    image_buffer,
+                    media_type=media_type,
+                    headers=headers,
                 )
-            elif model.meta.profile_image_url.startswith("data:image"):
-                try:
-                    header, base64_data = model.meta.profile_image_url.split(",", 1)
-                    image_data = base64.b64decode(base64_data)
-                    image_buffer = io.BytesIO(image_data)
-                    media_type = header.split(";")[0].lstrip("data:")
+            except Exception:
+                log.debug("Failed to decode model profile image", exc_info=True)
+        elif profile_image_url.startswith("http") or profile_image_url.startswith("/"):
+            return Response(
+                status_code=status.HTTP_302_FOUND,
+                headers={"Location": profile_image_url},
+            )
 
-                    headers = {"Content-Disposition": "inline"}
-                    if etag:
-                        headers["ETag"] = etag
-
-                    return StreamingResponse(
-                        image_buffer,
-                        media_type=media_type,
-                        headers=headers,
-                    )
-                except Exception as e:
-                    pass
-
-        return FileResponse(f"{STATIC_DIR}/favicon.png")
-    else:
-        return FileResponse(f"{STATIC_DIR}/favicon.png")
+    return FileResponse(fallback_path)
 
 
 ############################

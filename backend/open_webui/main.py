@@ -515,6 +515,7 @@ from open_webui.utils.models import (
     get_all_base_models,
     check_model_access,
     get_filtered_models,
+    get_model_meta,
 )
 from open_webui.utils.chat import (
     generate_chat_completion as chat_completion_handler,
@@ -1604,13 +1605,14 @@ async def get_models(
             continue
 
         # Remove profile image URL to reduce payload size
-        if model.get("info", {}).get("meta", {}).get("profile_image_url"):
-            model["info"]["meta"].pop("profile_image_url", None)
+        model_meta = get_model_meta(model)
+        if model_meta.get("profile_image_url"):
+            model_meta.pop("profile_image_url", None)
 
         try:
             model_tags = [
                 tag.get("name")
-                for tag in model.get("info", {}).get("meta", {}).get("tags", [])
+                for tag in model_meta.get("tags", [])
             ]
             tags = [tag.get("name") for tag in model.get("tags", [])]
 

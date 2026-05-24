@@ -6,6 +6,7 @@ import pkgutil
 import sys
 import shutil
 import traceback
+import platform
 from datetime import datetime, timezone
 from typing import Any
 from uuid import uuid4
@@ -34,12 +35,15 @@ BACKEND_DIR = OPEN_WEBUI_DIR.parent
 # BASE_DIR is the parent of BACKEND_DIR (open-webui-dev/)
 BASE_DIR = BACKEND_DIR.parent
 
-try:
-    from dotenv import find_dotenv, load_dotenv
+SKIP_DOTENV = os.environ.get("OPEN_WEBUI_SKIP_DOTENV", "false").lower() == "true"
 
-    load_dotenv(find_dotenv(str(BASE_DIR / ".env")))
-except ImportError:
-    print("dotenv not installed, skipping...")
+if not SKIP_DOTENV:
+    try:
+        from dotenv import find_dotenv, load_dotenv
+
+        load_dotenv(find_dotenv(str(BASE_DIR / ".env")))
+    except ImportError:
+        print("dotenv not installed, skipping...")
 
 DOCKER = os.environ.get("DOCKER", "False").lower() == "true"
 
@@ -63,13 +67,14 @@ if USE_CUDA.lower() == "true":
 else:
     DEVICE_TYPE = "cpu"
 
-try:
-    import torch
+if platform.system() == "Darwin":
+    try:
+        import torch
 
-    if torch.backends.mps.is_available() and torch.backends.mps.is_built():
-        DEVICE_TYPE = "mps"
-except Exception:
-    pass
+        if torch.backends.mps.is_available() and torch.backends.mps.is_built():
+            DEVICE_TYPE = "mps"
+    except Exception:
+        pass
 
 ####################################
 # LOGGING
