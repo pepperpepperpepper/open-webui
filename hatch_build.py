@@ -10,6 +10,19 @@ from hatchling.builders.hooks.plugin.interface import BuildHookInterface
 class CustomBuildHook(BuildHookInterface):
     def initialize(self, version, build_data):
         super().initialize(version, build_data)
+        if os.environ.get("OPEN_WEBUI_SKIP_FRONTEND_BUILD", "").lower() in {
+            "1",
+            "true",
+            "yes",
+        }:
+            if os.path.isdir("build"):
+                stderr.write(
+                    ">>> Skipping Open Webui frontend build and reusing existing build/\n"
+                )
+                return
+            raise RuntimeError(
+                "OPEN_WEBUI_SKIP_FRONTEND_BUILD is set but no prebuilt build/ directory exists"
+            )
         stderr.write(">>> Building Open Webui frontend\n")
         npm = shutil.which("npm")
         if npm is None:
