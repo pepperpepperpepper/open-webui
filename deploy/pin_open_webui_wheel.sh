@@ -1,7 +1,7 @@
 #!/bin/sh
 set -eu
 
-ROOT="/home/pepper/apps/open-webui"
+ROOT="/var/www/open-webui"
 DEPLOY_DIR="$ROOT/deploy"
 
 usage() {
@@ -10,7 +10,7 @@ Usage:
   pin_open_webui_wheel.sh /path/to/open_webui-*.whl [--tag <tag>] [--no-lock] [--no-install]
 
 What it does:
-  - Copies the wheel into /home/pepper/apps/open-webui/deploy/vendor/
+  - Copies the wheel into /var/www/open-webui/deploy/vendor/
   - Pins apps/open-webui/deploy/pyproject.toml to that local wheel (no git build, no npm build)
   - Optionally updates poetry.lock and reinstalls the venv
 

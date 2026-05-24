@@ -57,7 +57,7 @@ Current patches:
 ## Deployment ownership boundary
 
 - **Deployment/integration wiring** (s6, nginx, env, provider keys, server-specific scripts) lives outside this repo
-  (on the server under `/home/pepper/apps/open-webui/deploy/`).
+  (on the server under `/var/www/open-webui/deploy/`).
 - **Product patches** (anything that changes Open WebUI behavior/UI itself) should live in this fork.
 
 ## Update workflow
@@ -66,7 +66,7 @@ Current patches:
 2. Apply/adjust patches and update this file.
 3. Create a new tag (example: `v0.6.43-pepper.1`).
 4. CI builds a wheel from that tag and attaches it to the GitHub Release.
-5. Server deploy: bump the pinned wheel URL in `/home/pepper/apps/open-webui/pyproject.toml` and restart Open WebUI.
+5. Server deploy: bump the pinned wheel URL in `/var/www/open-webui/pyproject.toml` and restart Open WebUI.
 
 ## Rollback
 

@@ -2,33 +2,33 @@
 
 ## What’s already prepared
 
-- App + Poetry venv: `/home/pepper/apps/open-webui`
-- Env file (includes `WEBUI_SECRET_KEY`): `/home/pepper/apps/open-webui/.env`
-- Data dir (uploads, cache, etc): `/home/pepper/data/open-webui`
-- Static assets dir (favicons, swagger-ui, fonts): `/home/pepper/data/open-webui/static`
+- App + Poetry venv: `/var/www/open-webui`
+- Env file (includes `WEBUI_SECRET_KEY`): `/var/www/open-webui/.env`
+- Data dir (uploads, cache, etc): `/home/arch/data/open-webui`
+- Static assets dir (favicons, swagger-ui, fonts): `/home/arch/data/open-webui/static`
 - Persistence DB (Postgres): `open_webui` on `127.0.0.1:5432` (role `open_webui`)
-- s6 service template: `/home/pepper/apps/open-webui/deploy/s6/open-webui`
-- nginx vhost template: `/home/pepper/apps/open-webui/deploy/nginx.chat.uh-oh.wtf.conf`
+- s6 service template: `/var/www/open-webui/deploy/s6/open-webui`
+- nginx vhost template: `/var/www/open-webui/deploy/nginx.chat.uh-oh.wtf.conf`
 
 ## Start Open WebUI manually (no root)
 
 ```sh
-cd /home/pepper/apps/open-webui
+cd /var/www/open-webui
 set -a; . ./.env; set +a
 ./.venv/bin/open-webui serve --host 127.0.0.1 --port 8080
 ```
 
 ## Postgres persistence
 
-Open WebUI uses `DATABASE_URL` from `/home/pepper/apps/open-webui/.env`.
+Open WebUI uses `DATABASE_URL` from `/var/www/open-webui/.env`.
 
 - Current value: `postgresql://open_webui@127.0.0.1:5432/open_webui`
-- Old SQLite DB (backup): `/home/pepper/data/open-webui/webui.db.bak-*`
+- Old SQLite DB (backup): `/home/arch/data/open-webui/webui.db.bak-*`
 
 To (re)run the SQLite → Postgres copy:
 
 ```sh
-cd /home/pepper/apps/open-webui
+cd /var/www/open-webui
 sudo s6-svc -d /service/open-webui
 set -a; . ./.env; set +a
 ./.venv/bin/python deploy/migrate_sqlite_to_postgres.py --wipe-destination
@@ -38,7 +38,7 @@ sudo s6-svc -u /service/open-webui
 ## Enable via s6 (root)
 
 ```sh
-cp -a /home/pepper/apps/open-webui/deploy/s6/open-webui /service/open-webui
+cp -a /var/www/open-webui/deploy/s6/open-webui /service/open-webui
 ```
 
 To control it (root):
@@ -51,12 +51,31 @@ s6-svc -r /service/open-webui   # restart
 
 Logs:
 
-- `/home/pepper/logs/open-webui/current` (and rotated files next to it)
+- `/home/arch/logs/open-webui/current` (and rotated files next to it)
+
+## Memory pressure runbook
+
+This host has had recurring slowdowns where memory pressure climbs into swap before one obvious app process stands out. Use the dedicated runbook in `deploy/MEMORY_PRESSURE.md`.
+
+Quick commands:
+
+```sh
+cd /var/www/open-webui
+./deploy/capture_memory_pressure.sh --reason manual
+./deploy/watch_memory_pressure.sh
+```
+
+The watcher can also be enabled under s6 from `deploy/s6/open-webui-pressure-watch`:
+
+```sh
+sudo cp -a /var/www/open-webui/deploy/s6/open-webui-pressure-watch /service/open-webui-pressure-watch
+sudo s6-svscanctl -a /service
+```
 
 ## Enable nginx vhost (root)
 
 ```sh
-cp /home/pepper/apps/open-webui/deploy/nginx.chat.uh-oh.wtf.conf /etc/nginx/sites-available/chat.uh-oh.wtf
+cp /var/www/open-webui/deploy/nginx.chat.uh-oh.wtf.conf /etc/nginx/sites-available/chat.uh-oh.wtf
 ln -sf /etc/nginx/sites-available/chat.uh-oh.wtf /etc/nginx/sites-enabled/chat.uh-oh.wtf
 nginx -t
 systemctl reload nginx
@@ -74,7 +93,7 @@ Open WebUI has a built-in Google OIDC provider. Once configured, the login page 
 
 1. Create a Google OAuth Client (Web application) and set the **Authorized redirect URI** to:
    - `https://chat.uh-oh.wtf/oauth/google/login/callback`
-2. Add these to `/home/pepper/apps/open-webui/.env` (quote values), then restart:
+2. Add these to `/var/www/open-webui/.env` (quote values), then restart:
 
 ```sh
 GOOGLE_CLIENT_ID='...'
@@ -112,7 +131,7 @@ Before exposing `https://chat.uh-oh.wtf` to the public internet, consider creati
 
 ### Remote providers
 
-Add your provider keys to `/home/pepper/apps/open-webui/.env` (or via the WebUI), then restart the service:
+Add your provider keys to `/var/www/open-webui/.env` (or via the WebUI), then restart the service:
 
 - `sudo s6-svc -r /service/open-webui`
 
@@ -128,7 +147,7 @@ This server sets OpenAI `api_configs` prefixes so Groq/Cerebras models stay visi
 This config lives in Postgres (`config.data.openai.api_configs`) and should survive upgrades, but you can re-apply it at any time:
 
 ```sh
-cd /home/pepper/apps/open-webui
+cd /var/www/open-webui
 set -a; . ./.env; set +a
 ./.venv/bin/python deploy/ensure_openai_provider_prefixes.py
 sudo s6-svc -r /service/open-webui
@@ -139,7 +158,7 @@ sudo s6-svc -r /service/open-webui
 This server pins the default chat model to Cerebras GLM-4.6:
 
 ```sh
-cd /home/pepper/apps/open-webui
+cd /var/www/open-webui
 set -a; . ./.env; set +a
 ./.venv/bin/python deploy/ensure_default_models.py --force \
   --default-model "cerebras.zai-glm-4.6" \
@@ -155,7 +174,7 @@ Some fixes/customizations are applied directly to the installed Open WebUI files
 After any upgrade (e.g. `poetry update open-webui`), re-apply local patches:
 
 ```sh
-cd /home/pepper/apps/open-webui
+cd /var/www/open-webui
 ./deploy/reapply_after_open_webui_upgrade.sh
 ```
 
@@ -175,7 +194,7 @@ This server is too small to reliably build Open WebUI’s frontend (Node/Vite) d
 2) Upgrade by tag (downloads the wheel + pins + restarts):
 
 ```sh
-cd /home/pepper/apps/open-webui
+cd /var/www/open-webui
 ./deploy/upgrade_open_webui_from_tag.sh v0.6.43-pepper.1
 ```
 
@@ -183,14 +202,14 @@ Private fork: set a token first (or pass `--token`):
 
 ```sh
 export GITHUB_TOKEN='...'
-cd /home/pepper/apps/open-webui
+cd /var/www/open-webui
 ./deploy/upgrade_open_webui_from_tag.sh v0.6.43-pepper.1
 ```
 
 3) Or, upgrade from a wheel you already have locally:
 
 ```sh
-cd /home/pepper/apps/open-webui
+cd /var/www/open-webui
 ./deploy/upgrade_open_webui.sh /path/to/open_webui-*.whl --tag v0.6.43-pepper.1
 ```
 
@@ -216,7 +235,7 @@ This deployment is configured to use Cartesia for TTS (voices are fetched from t
 
 - Base URL: `https://api.cartesia.ai`
 - Models: `sonic`, `sonic-2`, `sonic-turbo`
-- Requires `CARTESIA_API_KEY` in `/home/pepper/.api-keys` and a `Cartesia-Version` (set via `AUDIO_TTS_OPENAI_PARAMS` in `/home/pepper/apps/open-webui/.env`).
+- Requires `CARTESIA_API_KEY` in `/home/arch/.api-keys` and a `Cartesia-Version` (set via `AUDIO_TTS_OPENAI_PARAMS` in `/var/www/open-webui/.env`).
 - Note: Cartesia’s TTS endpoint is `POST /tts/bytes` (Open WebUI’s OpenAI TTS expects `POST /audio/speech`), so the backend must translate requests:
   - On PyPI installs, this is done via `deploy/apply_local_patches.py`.
   - On `+pepper.*` fork wheels, it is built-in.
@@ -253,7 +272,7 @@ The deployment wrapper now includes:
 Install/upgrade the venv:
 
 ```sh
-cd /home/pepper/apps/open-webui
+cd /var/www/open-webui
 poetry install
 ```
 
@@ -271,7 +290,7 @@ sudo chmod 0755 /usr/local/bin/livekit-server
 2) Generate a local LiveKit config + credentials (does not print secrets):
 
 ```sh
-cd /home/pepper/apps/open-webui
+cd /var/www/open-webui
 ./.venv/bin/python deploy/livekit/setup_self_hosted.py
 ```
 
@@ -284,8 +303,8 @@ This creates:
 
 The portal + agent read env vars from:
 
-- `/home/pepper/apps/open-webui/.env` (provider keys; already sources `/home/pepper/.api-keys`)
-- `/home/pepper/apps/open-webui/deploy/livekit/livekit.env` (LiveKit URL + credentials)
+- `/var/www/open-webui/.env` (provider keys; already sources `/home/arch/.api-keys`)
+- `/var/www/open-webui/deploy/livekit/livekit.env` (LiveKit URL + credentials)
 
 ```sh
 # LiveKit server
@@ -315,7 +334,7 @@ CEREBRAS_API_KEY='...'
 Terminal 1 (portal on `127.0.0.1:8091`):
 
 ```sh
-cd /home/pepper/apps/open-webui
+cd /var/www/open-webui
 set -a; . ./.env; . ./deploy/livekit/livekit.env; set +a
 ./.venv/bin/python deploy/livekit/portal.py
 ```
@@ -323,7 +342,7 @@ set -a; . ./.env; . ./deploy/livekit/livekit.env; set +a
 Terminal 2 (agent):
 
 ```sh
-cd /home/pepper/apps/open-webui
+cd /var/www/open-webui
 set -a; . ./.env; . ./deploy/livekit/livekit.env; set +a
 ./.venv/bin/python deploy/livekit/agent.py start
 ```

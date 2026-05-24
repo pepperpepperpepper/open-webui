@@ -1,9 +1,9 @@
 #!/bin/sh
 set -eu
 
-ROOT="/home/pepper/apps/open-webui"
+ROOT="/var/www/open-webui"
 REPO_DEFAULT="pepperpepperpepper/open-webui"
-OUT_DIR_DEFAULT="/home/pepper/tmp/wheels"
+OUT_DIR_DEFAULT="/home/arch/tmp/wheels"
 
 usage() {
   cat >&2 <<'EOF'

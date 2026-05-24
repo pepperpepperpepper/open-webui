@@ -63,7 +63,7 @@ def main() -> int:
     )
     parser.add_argument(
         "--sqlite-path",
-        default="/home/pepper/data/open-webui/webui.db",
+        default="/home/arch/data/open-webui/webui.db",
         help="Path to the existing SQLite DB file.",
     )
     parser.add_argument(

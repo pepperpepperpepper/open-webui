@@ -24,7 +24,7 @@ if [ "${1:-}" = "--tag" ]; then
   TAG_ARGS="--tag $TAG"
 fi
 
-cd /home/pepper/apps/open-webui
+cd /var/www/open-webui
 
 S6_SERVICES="open-webui open-webui-livekit-server open-webui-livekit-portal open-webui-livekit-agent"
 S6_UP_BEFORE=""
@@ -44,9 +44,9 @@ done
 ./deploy/reapply_after_open_webui_upgrade.sh
 
 for svc in $S6_SERVICES; do
-  if sudo test -d "/service/$svc" && sudo test -d "/home/pepper/apps/open-webui/deploy/s6/$svc"; then
+  if sudo test -d "/service/$svc" && sudo test -d "/var/www/open-webui/deploy/s6/$svc"; then
     echo "[info] Syncing s6 template: $svc"
-    sudo cp -a "/home/pepper/apps/open-webui/deploy/s6/$svc/." "/service/$svc/" || true
+    sudo cp -a "/var/www/open-webui/deploy/s6/$svc/." "/service/$svc/" || true
   fi
 done
 

@@ -1,2 +1,2 @@
 #!/bin/sh
-exec /usr/bin/s6-setuidgid pepper /usr/bin/s6-log -b t /home/pepper/logs/open-webui
+exec /usr/bin/s6-setuidgid pepper /usr/bin/s6-log -b t /home/arch/logs/open-webui
