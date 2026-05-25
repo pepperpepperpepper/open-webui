@@ -125,7 +125,7 @@ sudo s6-svc -r /service/open-webui
 Before exposing `https://chat.uh-oh.wtf` to the public internet, consider creating the first admin user over an SSH tunnel:
 
 1. Enable/start the s6 service, but **don’t** enable the nginx vhost yet.
-2. On your laptop: `ssh -L 8080:127.0.0.1:8080 pepper@uh-oh.wtf`
+2. On your laptop: `ssh -L 8080:127.0.0.1:8080 arch@uh-oh.wtf`
 3. Visit `http://localhost:8080` and create the first user (becomes admin).
 4. Confirm signups are disabled, then enable the nginx vhost.
 
