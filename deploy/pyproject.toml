@@ -8,12 +8,21 @@ package-mode = false
 [tool.poetry.dependencies]
 python = ">=3.11,<3.13"
 open-webui = { path = "vendor/open_webui-0.9.5+pepper.2-py3-none-any.whl" }
+# Pull torch from PyTorch's CPU-only index. The default PyPI torch wheel
+# pulls ~6GB of nvidia-cu12-* runtime libs as transitive deps even on
+# CPU-only boxes; the +cpu wheel drops those entirely.
+torch = { version = "2.9.1+cpu", source = "pytorch-cpu" }
 psycopg2-binary = "^2.9.11"
 firecrawl-py = "0.0.16"
 livekit-agents = {version = "~1.3.0", extras = ["cartesia", "openai", "turn-detector"]}
 livekit-api = "*"
 opentelemetry-api = "1.38.0"
 opentelemetry-sdk = "1.38.0"
+
+[[tool.poetry.source]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+priority = "explicit"
 
 [build-system]
 requires = ["poetry-core>=2.0.0"]
