@@ -14,5 +14,5 @@ if [ -f /var/www/open-webui/deploy/livekit/livekit.env ]; then
 fi
 set +a
 
-exec /usr/bin/s6-setuidgid pepper \
+exec /usr/bin/s6-setuidgid arch \
   /var/www/open-webui/.venv/bin/python /var/www/open-webui/deploy/livekit/portal.py

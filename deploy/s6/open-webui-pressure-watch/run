@@ -8,5 +8,5 @@ export TMPDIR=/home/arch/tmp/open-webui-pressure-watch-runtime
 
 mkdir -p "$TMPDIR"
 
-exec /usr/bin/s6-setuidgid pepper \
+exec /usr/bin/s6-setuidgid arch \
   /var/www/open-webui/deploy/watch_memory_pressure.sh

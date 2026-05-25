@@ -16,6 +16,6 @@ if [ -f /var/www/open-webui/deploy/livekit/livekit.env ]; then
 fi
 set +a
 
-exec /usr/bin/s6-setuidgid pepper \
+exec /usr/bin/s6-setuidgid arch \
   /usr/local/bin/livekit-server --config /var/www/open-webui/deploy/livekit/livekit.yaml
 

@@ -12,12 +12,12 @@ set +a
 
 # Sync OpenAI-compatible provider keys from env → Postgres so updates to ~/.api-keys
 # take effect without needing to click through the admin UI.
-/usr/bin/s6-setuidgid pepper \
+/usr/bin/s6-setuidgid arch \
   /var/www/open-webui/.venv/bin/python /var/www/open-webui/deploy/sync_openai_provider_keys_from_env.py --append-missing-urls || true
 
 # Ensure provider prefixes exist (prevents de-duplication across providers).
-/usr/bin/s6-setuidgid pepper \
+/usr/bin/s6-setuidgid arch \
   /var/www/open-webui/.venv/bin/python /var/www/open-webui/deploy/ensure_openai_provider_prefixes.py || true
 
-exec /usr/bin/s6-setuidgid pepper \
+exec /usr/bin/s6-setuidgid arch \
   /var/www/open-webui/.venv/bin/open-webui serve --host 127.0.0.1 --port 8080

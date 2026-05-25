@@ -15,5 +15,5 @@ set +a
 
 export LIVEKIT_URL="ws://127.0.0.1:7880"
 
-exec /usr/bin/s6-setuidgid pepper \
+exec /usr/bin/s6-setuidgid arch \
   /var/www/open-webui/.venv/bin/python /var/www/open-webui/deploy/livekit/agent.py start
