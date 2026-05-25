@@ -54,18 +54,15 @@ Current patches:
   - `deploy/livekit/index.html`
   - Supports `/livekit/?room=...&chat_id=...` and auto-loads that chat as context (and auto-sends on connect).
 - **Backend lazy-imports for low-RAM startup** (backend):
-  - `backend/open_webui/env.py` (torch only on Darwin, `OPEN_WEBUI_SKIP_DOTENV` escape hatch)
+  - `backend/open_webui/env.py` (`OPEN_WEBUI_SKIP_DOTENV` escape hatch)
   - `backend/open_webui/config.py` (don't import `chromadb` just to read default tenant/db names)
   - `backend/open_webui/retrieval/vector/factory.py` (`LazyVectorDBClient` proxy)
   - `backend/open_webui/storage/provider.py` (lazy boto3/google/azure imports; `LazyStorageProviderProxy`)
-  - `backend/open_webui/routers/{files,images,models,retrieval,tasks}.py` (imports moved into handler bodies)
+  - `backend/open_webui/routers/{files,images,models,tasks}.py` (imports moved into handler bodies; `retrieval.py` dropped at v0.9.5-pepper.1 because it conflicted on every hunk with upstream's async refactor)
   - Defers heavy imports until first call so the backend boots without OOM'ing on a memory-tight host.
 - **Safer model-dict access helpers** (backend):
   - `backend/open_webui/utils/models.py` adds `get_model_info`/`get_model_meta`/`get_model_params`/`get_model_capabilities`/`normalize_model_dict`.
   - Used by `backend/open_webui/{main.py, utils/middleware.py, utils/chat.py, routers/tasks.py}` to avoid crashing when `info.meta` or `info.params` is `None`/non-dict.
-- **Cached model-profile-image endpoint** (backend):
-  - `backend/open_webui/routers/models.py`
-  - `/model/profile/image` now reads from the in-process MODELS cache first, handles dict-vs-ORM model shapes, and falls back to `STATIC_DIR/favicon.png` instead of crashing on missing meta.
 - **Slim wheel** (packaging):
   - 16 files removed from `backend/open_webui/static/` (favicons, splash, manifest, custom.css, loader.js, logo, user-import.csv).
   - Production deploy sets `STATIC_DIR=/home/arch/data/open-webui/static` which holds the real assets.
