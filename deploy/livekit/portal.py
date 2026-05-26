@@ -189,6 +189,7 @@ def _build_voice_settings(
     min_interruption_duration: float | None,
     min_interruption_words: int | None,
     tts_voice: str | None,
+    web_search: bool | None,
 ) -> dict[str, object]:
     voice_settings: dict[str, object] = {}
 
@@ -234,6 +235,9 @@ def _build_voice_settings(
             if len(normalized_tts_voice) > 256:
                 raise HTTPException(status_code=400, detail="tts_voice is too long")
             voice_settings["tts_voice"] = normalized_tts_voice
+
+    if web_search is not None:
+        voice_settings["web_search"] = web_search
 
     if (
         min_endpointing_delay is not None
@@ -386,6 +390,7 @@ async def token(
     min_interruption_duration: float | None = Query(default=None, ge=0.0, le=10.0),
     min_interruption_words: int | None = Query(default=None, ge=0, le=50),
     tts_voice: str | None = Query(default=None),
+    web_search: bool | None = Query(default=None),
     authorization: str | None = Header(default=None),
 ):
     _require_env("LIVEKIT_URL", LIVEKIT_URL)
@@ -423,6 +428,7 @@ async def token(
         min_interruption_duration=min_interruption_duration,
         min_interruption_words=min_interruption_words,
         tts_voice=tts_voice,
+        web_search=web_search,
     )
 
     room_config = RoomConfiguration(agents=[RoomAgentDispatch(agent_name=AGENT_NAME)])
@@ -556,6 +562,7 @@ async def apply(
     min_interruption_duration: float | None = Query(default=None, ge=0.0, le=10.0),
     min_interruption_words: int | None = Query(default=None, ge=0, le=50),
     tts_voice: str | None = Query(default=None),
+    web_search: bool | None = Query(default=None),
     force: bool = Query(default=False),
     authorization: str | None = Header(default=None),
 ):
@@ -580,6 +587,7 @@ async def apply(
         min_interruption_duration=min_interruption_duration,
         min_interruption_words=min_interruption_words,
         tts_voice=tts_voice,
+        web_search=web_search,
     )
     metadata = (
         json.dumps({"owui_voice": voice_settings}, separators=(",", ":"), sort_keys=True)

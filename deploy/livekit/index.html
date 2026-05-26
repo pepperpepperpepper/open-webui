@@ -218,6 +218,12 @@
             Min Interruption Words
             <input id="min_interruption_words" type="number" step="1" min="0" max="50" />
           </label>
+          <label>
+            Web Search
+            <div>
+              <input id="enable_web_search" type="checkbox" />
+            </div>
+          </label>
         </div>
         <div style="height: 8px"></div>
         <div class="row">
@@ -359,6 +365,16 @@
               <td>0–5 (default 2)</td>
             </tr>
             <tr>
+              <td><span class="pill">Web Search</span></td>
+              <td>
+                When enabled, gives the agent a <span class="mono">web_search</span>
+                function tool (Serper). Off by default — when off the tool is not
+                attached at all, so the LLM doesn’t see it and there’s zero overhead.
+                Changes apply on connect or <span class="mono">Apply</span>.
+              </td>
+              <td>Off (default) or On</td>
+            </tr>
+            <tr>
               <td><span class="pill">Cartesia Voice</span></td>
               <td>
                 Optional voice selection for TTS (passed to the server as
@@ -488,6 +504,7 @@
 	      const minEndpointingInput = document.getElementById("min_endpointing_delay");
 	      const maxEndpointingInput = document.getElementById("max_endpointing_delay");
 	      const allowInterruptionsInput = document.getElementById("allow_interruptions");
+      const enableWebSearchInput = document.getElementById("enable_web_search");
 	      const minInterruptionDurationInput = document.getElementById("min_interruption_duration");
 	      const minInterruptionWordsInput = document.getElementById("min_interruption_words");
       const ttsVoiceInput = document.getElementById("tts_voice");
@@ -1915,6 +1932,7 @@
 	          min_interruption_duration: minInterruptionDurationInput.value,
 	          min_interruption_words: minInterruptionWordsInput.value,
 	          tts_voice: ttsVoiceInput.value,
+	          web_search: enableWebSearchInput?.checked ?? false,
 	          keep_awake: keepAwakeInput.checked,
 	          verbose_logs: verboseLogsInput.checked,
 	          autoscroll: autoscrollInput.checked,
@@ -1938,6 +1956,7 @@
 				          min_interruption_duration: "0.7",
 			          min_interruption_words: "2",
 			          tts_voice: "",
+			          web_search: false,
 			          keep_awake: true,
 			          verbose_logs: true,
 			          autoscroll: true,
@@ -1961,6 +1980,7 @@
           s.min_interruption_duration ?? defaults.min_interruption_duration;
         minInterruptionWordsInput.value = s.min_interruption_words ?? defaults.min_interruption_words;
         setTtsVoice(s.tts_voice ?? defaults.tts_voice);
+        if (enableWebSearchInput) enableWebSearchInput.checked = !!(s.web_search ?? defaults.web_search);
 	        keepAwakeInput.checked = s.keep_awake ?? defaults.keep_awake;
 	        verboseLogsInput.checked = s.verbose_logs ?? defaults.verbose_logs;
 	        autoscrollInput.checked = s.autoscroll ?? defaults.autoscroll;
@@ -2078,6 +2098,7 @@
 	        if (settings.tts_voice && settings.tts_voice.trim()) {
 	          params.set("tts_voice", settings.tts_voice.trim());
 	        }
+	        params.set("web_search", settings.web_search ? "true" : "false");
         if (settings.min_endpointing_delay) {
           params.set("min_endpointing_delay", settings.min_endpointing_delay);
         }
@@ -2130,6 +2151,7 @@
 	        if (settings.tts_voice && settings.tts_voice.trim()) {
 	          params.set("tts_voice", settings.tts_voice.trim());
 	        }
+	        params.set("web_search", settings.web_search ? "true" : "false");
         if (settings.min_endpointing_delay) {
           params.set("min_endpointing_delay", settings.min_endpointing_delay);
         }

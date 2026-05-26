@@ -4,14 +4,19 @@ import os
 import time
 from typing import Any
 
+import aiohttp
 from livekit import agents
 from livekit import rtc
 from livekit.agents.voice import events as voice_events
 from livekit.agents import Agent, AgentServer, AgentSession, StopResponse, llm
+from livekit.agents.llm import function_tool
 from livekit.agents.tokenize.basic import split_words
 from livekit.agents.voice import room_io
 from livekit.agents.log import logger
 from livekit.plugins import cartesia, openai
+
+
+SERPER_API_KEY = os.getenv("SERPER_API_KEY", "").strip()
 
 
 AGENT_NAME = os.getenv("LIVEKIT_AGENT_NAME", "owui-voice")
@@ -411,15 +416,68 @@ def _coerce_int(value: object) -> int | None:
     return None
 
 
-class VoiceAgent(Agent):
-    def __init__(self) -> None:
-        super().__init__(
-            instructions=(
-                "You are the user's real-time voice assistant inside Open WebUI. "
-                "Keep replies concise and speak naturally. "
-                "Ask a clarifying question when needed."
-            )
+@function_tool
+async def web_search(query: str) -> str:
+    """Search the web (Serper / Google) for current information.
+
+    Use this when the user asks about recent events, factual data, or
+    anything that may not be in your training data. Keep queries short
+    and specific. Returns up to 5 result snippets.
+
+    Args:
+        query: The search query — a natural-language question or keywords.
+    """
+    if not SERPER_API_KEY:
+        return "Web search is not configured on this server."
+
+    try:
+        timeout = aiohttp.ClientTimeout(total=8)
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with session.post(
+                "https://google.serper.dev/search",
+                headers={
+                    "X-API-KEY": SERPER_API_KEY,
+                    "Content-Type": "application/json",
+                },
+                json={"q": query, "num": 5},
+            ) as resp:
+                resp.raise_for_status()
+                data = await resp.json()
+    except asyncio.TimeoutError:
+        logger.warning("web_search_timeout", extra={"query": query[:120]})
+        return "Web search timed out."
+    except Exception as exc:
+        logger.warning(
+            "web_search_failed",
+            extra={"query": query[:120], "error": str(exc)[:200]},
         )
+        return f"Web search failed: {type(exc).__name__}"
+
+    organic = data.get("organic") or []
+    if not organic:
+        return "No results found."
+
+    lines: list[str] = []
+    for item in organic[:5]:
+        title = (item.get("title") or "").strip()
+        snippet = (item.get("snippet") or item.get("description") or "").strip()
+        if title and snippet:
+            lines.append(f"- {title}: {snippet}")
+        elif title:
+            lines.append(f"- {title}")
+    return "\n".join(lines) if lines else "No results found."
+
+
+class VoiceAgent(Agent):
+    def __init__(self, *, tools: list | None = None, extra_instructions: str = "") -> None:
+        base_instructions = (
+            "You are the user's real-time voice assistant inside Open WebUI. "
+            "Keep replies concise and speak naturally. "
+            "Ask a clarifying question when needed."
+        )
+        if extra_instructions:
+            base_instructions = f"{base_instructions} {extra_instructions}"
+        super().__init__(instructions=base_instructions, tools=tools)
 
     async def on_user_turn_completed(
         self, turn_ctx: llm.ChatContext, new_message: llm.ChatMessage
@@ -475,6 +533,7 @@ async def entrypoint(ctx: agents.JobContext):
     min_interruption_words = _coerce_int(voice_settings.get("min_interruption_words"))
     tts_voice_override = str(voice_settings.get("tts_voice", "")).strip()
     llm_model_override = str(voice_settings.get("llm_model", "")).strip().lower()
+    enable_web_search = bool(_coerce_bool(voice_settings.get("web_search")))
 
     session_kwargs: dict[str, object] = {
         "turn_detection": _turn_detection(turn_detection_mode),
@@ -520,6 +579,8 @@ async def entrypoint(ctx: agents.JobContext):
             "tts_voice": resolved_tts_voice or None,
             "turn_detection": turn_detection_mode,
             "session_kwargs": session_kwargs_log,
+            "web_search_enabled": enable_web_search,
+            "web_search_configured": bool(SERPER_API_KEY),
             "fragment_turn_suppression": {
                 "enabled": SUPPRESS_FRAGMENT_TURNS,
                 "max_words": FRAGMENT_TURN_MAX_WORDS,
@@ -543,7 +604,17 @@ async def entrypoint(ctx: agents.JobContext):
         tts=cartesia.TTS(**tts_kwargs),
         **session_kwargs,
     )
-    voice_agent = VoiceAgent()
+    voice_agent_tools = [web_search] if enable_web_search else None
+    voice_agent_extra_instructions = (
+        "If the user asks about recent events or facts you may not know, "
+        "you can call web_search(query) to look it up."
+        if enable_web_search
+        else ""
+    )
+    voice_agent = VoiceAgent(
+        tools=voice_agent_tools,
+        extra_instructions=voice_agent_extra_instructions,
+    )
     context_lock = asyncio.Lock()
     last_llm_failure_announcement_at = 0.0
     room_cleanup_task: asyncio.Task[None] | None = None
