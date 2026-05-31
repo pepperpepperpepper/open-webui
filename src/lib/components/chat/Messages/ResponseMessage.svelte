@@ -266,6 +266,10 @@
 		} else {
 			$audioQueue.setId(`${message.id}`);
 			$audioQueue.setPlaybackRate($settings.audio?.tts?.playbackRate ?? 1);
+			$audioQueue.setMetadata({
+				title: content.replace(/\s+/g, ' ').trim().slice(0, 120) || 'Assistant response',
+				artist: 'Open WebUI'
+			});
 			$audioQueue.onStopped = () => {
 				speaking = false;
 				speakingIdx = undefined;
