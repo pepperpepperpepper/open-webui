@@ -43,6 +43,9 @@ Current patches:
 - **Voice mode resilience** (frontend):
   - `src/lib/components/chat/MessageInput/CallOverlay.svelte`
   - Uses a timer loop instead of `requestAnimationFrame` so the audio loop isn’t fully paused when the tab is backgrounded.
+- **TTS audio playback resilience on mobile** (frontend):
+  - `src/lib/utils/audio.ts`, `src/lib/components/chat/Messages/ResponseMessage.svelte`
+  - Adds Media Session API (lock-screen metadata + play/pause/stop/seek action handlers + playbackState) and Screen Wake Lock to `AudioQueue`, plus a `setMetadata()` call from the per-message speak button so the lock-screen title shows the first ~120 chars of the response. Mobile browsers no longer suspend the tab mid-response when the screen locks, and stalled streams can be resumed from the lock screen instead of restarted from the top.
 - **ChatControls ResizeObserver guard** (frontend):
   - `src/lib/components/chat/ChatControls.svelte`
   - Prevents a race where `pane` becomes `null` while the observer callback still runs.
