@@ -258,6 +258,7 @@
 		          <button id="toggle_mic" class="secondary" disabled>Pause Mic</button>
 		          <button id="enable_audio" class="secondary" disabled>Enable Audio</button>
 		          <button id="apply" class="secondary" disabled>Apply (restart agent)</button>
+		          <button id="interrupt_btn" class="secondary" disabled title="Stop the agent and listen for your next command">⏹ Interrupt</button>
 		        </div>
 		        <p class="hint" style="margin: 10px 0 0 0">
 		          Change settings any time; click <span class="mono">Apply</span> to update the agent without disconnecting.
@@ -604,6 +605,7 @@
       const contextTextInput = document.getElementById("context_text");
       const sendContextBtn = document.getElementById("send_context");
       const clearContextBtn = document.getElementById("clear_context");
+      const interruptBtn = document.getElementById("interrupt_btn");
 
       const SETTINGS_KEY = "owui_livekit_voice_settings";
 	      const TRANSCRIPT_KEY_PREFIX = "owui_livekit_voice_transcript:";
@@ -1932,6 +1934,13 @@
           agentSearching = false;
           updateAgentIndicator();
           info("Tools executed", data);
+          return;
+        }
+
+        if (ev === "interrupted") {
+          agentSearching = false;
+          updateAgentIndicator();
+          info("Agent interrupted (now listening)");
           return;
         }
 
@@ -3327,6 +3336,7 @@
 	        applyBtn.disabled = !connected;
 	        if (toggleMicBtn) toggleMicBtn.disabled = !connected;
 	        if (enableAudioBtn) enableAudioBtn.disabled = !connected;
+	        if (interruptBtn) interruptBtn.disabled = !connected;
 	        renderMicButton();
 	        if (!connected) {
 	          agentSearching = false;
@@ -3347,6 +3357,26 @@
           } catch {}
         });
       }
+	      if (interruptBtn) {
+	        interruptBtn.addEventListener("click", async () => {
+	          if (!lkRoom) {
+	            warn("Interrupt requested but not connected");
+	            return;
+	          }
+	          info("Interrupt clicked → stopping agent");
+	          // Optimistic feedback; the agent will flip to "listening" shortly.
+	          agentSearching = false;
+	          updateAgentIndicator();
+	          interruptBtn.disabled = true;
+	          try {
+	            await publishControlMessage({ op: "interrupt" });
+	          } catch (e) {
+	            error("Interrupt failed", toPlainError(e) ?? e);
+	          } finally {
+	            if (lkRoom) interruptBtn.disabled = false;
+	          }
+	        });
+	      }
 	      if (sendContextBtn) {
 	        sendContextBtn.addEventListener("click", async () => {
 	          info("Send Context clicked");

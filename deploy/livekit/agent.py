@@ -1067,6 +1067,25 @@ async def entrypoint(ctx: agents.JobContext):
                 extra={"identity": sender_identity, "topic": packet.topic, "request_id": request_id},
             )
             asyncio.create_task(clear_context(request_id=request_id), name="context_clear")
+        elif op == "interrupt":
+            # Manual "stop" button: abort the current agent turn (thinking /
+            # searching / speaking) and fall back to listening for the next input.
+            touch_activity()
+            logger.info(
+                "control_interrupt",
+                extra={"identity": sender_identity, "topic": packet.topic, "request_id": request_id},
+            )
+            try:
+                session.interrupt(force=True)
+            except Exception:
+                logger.exception("session.interrupt() failed")
+            schedule_publish(
+                {
+                    "type": "owui.voice.event",
+                    "event": "interrupted",
+                    "data": {"request_id": request_id},
+                }
+            )
         else:
             schedule_publish(
                 {
