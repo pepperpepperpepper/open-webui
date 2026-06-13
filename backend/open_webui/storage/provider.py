@@ -1,26 +1,26 @@
-import os
-import shutil
 import json
 import logging
+import os
 import re
+import shutil
 from abc import ABC, abstractmethod
-from typing import BinaryIO, Tuple, Dict
+from typing import BinaryIO, Dict, Tuple
 
 from open_webui.config import (
+    AZURE_STORAGE_CONTAINER_NAME,
+    AZURE_STORAGE_ENDPOINT,
+    AZURE_STORAGE_KEY,
+    GCS_BUCKET_NAME,
+    GOOGLE_APPLICATION_CREDENTIALS_JSON,
     S3_ACCESS_KEY_ID,
+    S3_ADDRESSING_STYLE,
     S3_BUCKET_NAME,
+    S3_ENABLE_TAGGING,
     S3_ENDPOINT_URL,
     S3_KEY_PREFIX,
     S3_REGION_NAME,
     S3_SECRET_ACCESS_KEY,
     S3_USE_ACCELERATE_ENDPOINT,
-    S3_ADDRESSING_STYLE,
-    S3_ENABLE_TAGGING,
-    GCS_BUCKET_NAME,
-    GOOGLE_APPLICATION_CREDENTIALS_JSON,
-    AZURE_STORAGE_ENDPOINT,
-    AZURE_STORAGE_CONTAINER_NAME,
-    AZURE_STORAGE_KEY,
     STORAGE_PROVIDER,
     UPLOAD_DIR,
 )
