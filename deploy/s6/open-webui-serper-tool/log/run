@@ -1,0 +1,2 @@
+#!/bin/sh
+exec /usr/bin/s6-setuidgid arch /usr/bin/s6-log -b t /home/arch/logs/open-webui-serper-tool

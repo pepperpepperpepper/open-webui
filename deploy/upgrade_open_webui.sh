@@ -26,7 +26,7 @@ fi
 
 cd /var/www/open-webui
 
-S6_SERVICES="open-webui open-webui-livekit-server open-webui-livekit-portal open-webui-livekit-agent open-webui-pressure-watch"
+S6_SERVICES="open-webui open-webui-livekit-server open-webui-livekit-portal open-webui-livekit-agent open-webui-pressure-watch open-webui-serper-tool"
 S6_UP_BEFORE=""
 
 for svc in $S6_SERVICES; do

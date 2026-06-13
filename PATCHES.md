@@ -74,6 +74,10 @@ Current patches:
 - **LiveKit agent: env-driven knobs + wake-word/strip pipeline + Cartesia TTS fixtures** (deploy):
   - `deploy/livekit/agent.py`, `deploy/livekit/portal.py`, `deploy/livekit/index.html`
   - `deploy/livekit/render_phrases_wav.py` + `deploy/livekit/tts_wavs/` + `tests/assets/zwingli_round*/` (regression fixtures for wake-word + prompt-injection-style preambles).
+- **Serper web-search tool server** (deploy):
+  - `deploy/serper-tool/server.py` — small FastAPI OpenAPI tool server exposing a single `web_search` operation that calls serper.dev and returns raw top organic results (+ answer box) instead of routing through Open WebUI's builtin `search_web` RAG pipeline.
+  - `deploy/s6/open-webui-serper-tool/` s6 service template (listens 127.0.0.1:8093; env in uncommitted `deploy/serper-tool/serper-tool.env`).
+  - Registered as a Tool Server connection (`info.id=serper`) via `POST /api/v1/configs/tool_servers`; models opt in with `meta.toolIds=["server:serper"]` and disable the builtin via `meta.builtinTools.web_search=false`. Used for native function calling so the model decides when to search.
 - **Memory-pressure tooling** (deploy):
   - `deploy/MEMORY_PRESSURE.md` runbook
   - `deploy/capture_memory_pressure.sh`, `deploy/watch_memory_pressure.sh`

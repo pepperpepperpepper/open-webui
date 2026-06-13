@@ -15,6 +15,7 @@ deploy/vendor/
 deploy/open_webui_wheel_pin.json
 deploy/livekit/livekit.env
 deploy/livekit/livekit.yaml
+deploy/serper-tool/serper-tool.env
 deploy/__pycache__/
 deploy/livekit/__pycache__/
 

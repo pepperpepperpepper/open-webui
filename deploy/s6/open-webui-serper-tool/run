@@ -1,0 +1,18 @@
+#!/bin/sh
+set -eu
+
+cd /var/www/open-webui
+
+export HOME=/home/arch
+export TMPDIR=/home/arch/tmp/open-webui-serper-tool-runtime
+export PORT=8093
+
+set -a
+. /var/www/open-webui/.env
+if [ -f /var/www/open-webui/deploy/serper-tool/serper-tool.env ]; then
+  . /var/www/open-webui/deploy/serper-tool/serper-tool.env
+fi
+set +a
+
+exec /usr/bin/s6-setuidgid arch \
+  /var/www/open-webui/.venv/bin/python /var/www/open-webui/deploy/serper-tool/server.py
