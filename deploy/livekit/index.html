@@ -146,6 +146,92 @@
       .log-controls {
         margin-bottom: 10px;
       }
+      /* Prominent agent-state banner (Connecting/Listening/Thinking/Searching/Speaking) */
+      .agent-indicator {
+        display: none;
+        align-items: center;
+        gap: 10px;
+        padding: 10px 14px;
+        border-radius: 10px;
+        border: 1px solid #1f2937;
+        background: #0b1220;
+        color: #cbd5e1;
+        font-weight: 600;
+        font-size: 14px;
+        margin-bottom: 12px;
+      }
+      .agent-indicator.show {
+        display: flex;
+      }
+      .agent-indicator .ai-dot {
+        width: 10px;
+        height: 10px;
+        border-radius: 999px;
+        background: #64748b;
+        flex: 0 0 auto;
+      }
+      .agent-indicator .ai-label {
+        flex: 1 1 auto;
+      }
+      .agent-indicator .ai-spin {
+        font-variant-numeric: tabular-nums;
+        opacity: 0.85;
+        min-width: 1em;
+        text-align: center;
+      }
+      .agent-indicator.state-connecting {
+        border-color: #334155;
+      }
+      .agent-indicator.state-connecting .ai-dot {
+        background: #64748b;
+        animation: ai-pulse 1.2s ease-in-out infinite;
+      }
+      .agent-indicator.state-listening {
+        border-color: #14532d;
+        background: #08160d;
+        color: #86efac;
+      }
+      .agent-indicator.state-listening .ai-dot {
+        background: #22c55e;
+      }
+      .agent-indicator.state-thinking {
+        border-color: #1e3a8a;
+        background: #0a1024;
+        color: #93c5fd;
+      }
+      .agent-indicator.state-thinking .ai-dot {
+        background: #3b82f6;
+        animation: ai-pulse 1s ease-in-out infinite;
+      }
+      .agent-indicator.state-searching {
+        border-color: #78350f;
+        background: #1a1206;
+        color: #fcd34d;
+      }
+      .agent-indicator.state-searching .ai-dot {
+        background: #f59e0b;
+        animation: ai-pulse 1s ease-in-out infinite;
+      }
+      .agent-indicator.state-speaking {
+        border-color: #4c1d95;
+        background: #120a24;
+        color: #c4b5fd;
+      }
+      .agent-indicator.state-speaking .ai-dot {
+        background: #8b5cf6;
+        animation: ai-pulse 0.7s ease-in-out infinite;
+      }
+      @keyframes ai-pulse {
+        0%,
+        100% {
+          opacity: 1;
+          transform: scale(1);
+        }
+        50% {
+          opacity: 0.35;
+          transform: scale(0.65);
+        }
+      }
     </style>
   </head>
   <body>
@@ -157,6 +243,11 @@
       </p>
 
 		      <div class="card">
+		        <div id="agent_indicator" class="agent-indicator">
+		          <span class="ai-dot"></span>
+		          <span class="ai-label">Idle</span>
+		          <span class="ai-spin"></span>
+		        </div>
 		        <div class="row">
 		          <label>
 		            Room
@@ -1662,6 +1753,72 @@
 	        setStatus(parts.length ? parts.join(" • ") : "");
 	      }
 
+      // --- Prominent agent-state indicator (banner at top of the control card) ---
+      let agentSearching = false;
+      let _spinTimer = null;
+      let _spinIdx = 0;
+      const _SPIN_FRAMES = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏";
+
+      function _stopSpin(el) {
+        if (_spinTimer) {
+          clearInterval(_spinTimer);
+          _spinTimer = null;
+        }
+        const s = (el || document.getElementById("agent_indicator"))?.querySelector(".ai-spin");
+        if (s) s.textContent = "";
+      }
+      function _startSpin(el) {
+        const s = el.querySelector(".ai-spin");
+        if (_spinTimer || !s) return;
+        _spinTimer = setInterval(() => {
+          _spinIdx = (_spinIdx + 1) % _SPIN_FRAMES.length;
+          s.textContent = _SPIN_FRAMES[_spinIdx];
+        }, 90);
+      }
+
+      function updateAgentIndicator() {
+        const el = document.getElementById("agent_indicator");
+        if (!el) return;
+        // Hidden entirely when not connected / connecting.
+        if (!lkRoom && !connectInFlight) {
+          el.className = "agent-indicator";
+          _stopSpin(el);
+          return;
+        }
+        let state,
+          label,
+          spin = false;
+        if (agentSearching) {
+          state = "searching";
+          label = "🔍  Searching the web…";
+          spin = true;
+        } else {
+          switch (lastAgentState) {
+            case "listening":
+              state = "listening";
+              label = "🎙  Listening";
+              break;
+            case "thinking":
+              state = "thinking";
+              label = "💭  Thinking…";
+              spin = true;
+              break;
+            case "speaking":
+              state = "speaking";
+              label = "🔊  Speaking";
+              break;
+            default:
+              state = "connecting";
+              label = lkRoom ? "●  Ready" : "●  Connecting…";
+          }
+        }
+        el.className = `agent-indicator show state-${state}`;
+        const lbl = el.querySelector(".ai-label");
+        if (lbl) lbl.textContent = label;
+        if (spin) _startSpin(el);
+        else _stopSpin(el);
+      }
+
       function decodeDataPayload(payload) {
         if (payload == null) return null;
         if (typeof payload === "string") return payload;
@@ -1693,7 +1850,10 @@
 
         if (ev === "agent_state_changed" && data) {
           lastAgentState = data.new_state || null;
+          // Leaving "thinking" (the state a tool call runs under) clears searching.
+          if (lastAgentState && lastAgentState !== "thinking") agentSearching = false;
           renderStatus();
+          updateAgentIndicator();
           info(`Agent state → ${data.new_state}`, { old: data.old_state, new: data.new_state });
           return;
         }
@@ -1759,7 +1919,18 @@
           return;
         }
 
+        if (ev === "tool_call_started" && data) {
+          if (data.name === "web_search") {
+            agentSearching = true;
+            updateAgentIndicator();
+          }
+          info(`Tool call started → ${data.name}`, data);
+          return;
+        }
+
         if (ev === "function_tools_executed" && data) {
+          agentSearching = false;
+          updateAgentIndicator();
           info("Tools executed", data);
           return;
         }
@@ -3157,6 +3328,11 @@
 	        if (toggleMicBtn) toggleMicBtn.disabled = !connected;
 	        if (enableAudioBtn) enableAudioBtn.disabled = !connected;
 	        renderMicButton();
+	        if (!connected) {
+	          agentSearching = false;
+	          lastAgentState = null;
+	        }
+	        updateAgentIndicator();
 	      }
 
 	      function renderMicButton() {

@@ -18,6 +18,21 @@ from livekit.plugins import cartesia, openai
 
 SERPER_API_KEY = os.getenv("SERPER_API_KEY", "").strip()
 
+# Set per-session in entrypoint() so the module-level web_search tool can push
+# UI events (e.g. the "Searching the web…" indicator) to the browser demo.
+# Each job runs in its own process handling one session, so a module global is safe.
+_ACTIVE_VOICE_PUBLISH = None
+
+
+def _emit_voice_event(event: str, data: dict) -> None:
+    pub = _ACTIVE_VOICE_PUBLISH
+    if pub is None:
+        return
+    try:
+        pub({"type": "owui.voice.event", "event": event, "data": data})
+    except Exception:
+        pass
+
 
 AGENT_NAME = os.getenv("LIVEKIT_AGENT_NAME", "owui-voice")
 LIVEKIT_HTTP_URL = os.getenv("LIVEKIT_HTTP_URL", "").strip()
@@ -430,6 +445,9 @@ async def web_search(query: str) -> str:
     if not SERPER_API_KEY:
         return "Web search is not configured on this server."
 
+    # Tell the browser UI we're searching (distinct from generic "thinking").
+    _emit_voice_event("tool_call_started", {"name": "web_search", "query": query[:200]})
+
     try:
         timeout = aiohttp.ClientTimeout(total=8)
         async with aiohttp.ClientSession(timeout=timeout) as session:
@@ -698,6 +716,10 @@ async def entrypoint(ctx: agents.JobContext):
 
     def schedule_publish(payload: dict[str, object]) -> None:
         asyncio.create_task(publish_debug_event(payload), name="publish_debug_event")
+
+    # Expose this session's publisher to the module-level web_search tool.
+    global _ACTIVE_VOICE_PUBLISH
+    _ACTIVE_VOICE_PUBLISH = schedule_publish
 
     def schedule_room_cleanup(
         trigger_reason: str,
@@ -1276,6 +1298,8 @@ async def entrypoint(ctx: agents.JobContext):
 
     def on_close(ev: voice_events.CloseEvent) -> None:
         touch_activity()
+        global _ACTIVE_VOICE_PUBLISH
+        _ACTIVE_VOICE_PUBLISH = None
         logger.warning(
             "session_close",
             extra={"reason": ev.reason, "error": str(ev.error) if ev.error else None},
