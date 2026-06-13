@@ -623,12 +623,24 @@ async def entrypoint(ctx: agents.JobContext):
         **session_kwargs,
     )
     voice_agent_tools = [web_search] if enable_web_search else None
-    voice_agent_extra_instructions = (
-        "If the user asks about recent events or facts you may not know, "
-        "you can call web_search(query) to look it up."
-        if enable_web_search
-        else ""
-    )
+    if enable_web_search:
+        voice_agent_extra_instructions = (
+            "If the user asks about recent events or facts you may not know, "
+            "you can call web_search(query) to look it up. Only say you searched "
+            "or looked something up when you actually called web_search this turn "
+            "and got results; otherwise answer from your own knowledge and do not "
+            "imply you searched."
+        )
+    else:
+        # Web search is off this session — the agent has no internet access.
+        # Prevent it from fabricating "I searched / I looked that up" claims.
+        voice_agent_extra_instructions = (
+            "You do not have web or internet access in this session. If the user "
+            "asks you to search, look something up, browse, or check the latest "
+            "information, tell them you can't search right now and answer from your "
+            "own knowledge instead — and say it may be out of date. Never claim or "
+            "imply that you searched, browsed, or looked anything up."
+        )
     voice_agent = VoiceAgent(
         tools=voice_agent_tools,
         extra_instructions=voice_agent_extra_instructions,
