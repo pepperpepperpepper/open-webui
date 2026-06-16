@@ -615,6 +615,72 @@ def _patch_router_openai_provider_timing(openai_py_path: Path, *, dry_run: bool)
 	return True, "patched"
 
 
+def _patch_oauth_app_redirect(oauth_py_path: Path, *, dry_run: bool) -> tuple[bool, str]:
+    """Native app (Oops WTF Voice) login: when /oauth/<provider>/login is started
+    with ?app=1, hand the OWUI token back to the app via the oopswtfvoice://auth
+    custom scheme instead of the web /auth page. Opt-in (web flow unchanged);
+    the redirect scheme is hardcoded (no open redirect)."""
+    original = oauth_py_path.read_text(encoding="utf-8")
+    if "OWUI_LOCAL_PATCH_OAUTH_APP_REDIRECT" in original:
+        return (False, "already patched")
+
+    login_anchor = "        return await client.authorize_redirect(request, redirect_uri, **kwargs)"
+    login_replacement = (
+        "        # OWUI_LOCAL_PATCH_OAUTH_APP_REDIRECT: native app (Oops WTF Voice) login.\n"
+        "        # Remember an app-initiated login so the callback hands the token back to\n"
+        "        # the app's custom scheme instead of the web /auth page.\n"
+        "        if request.query_params.get('app') == '1':\n"
+        "            request.session['owui_app_login'] = True\n"
+        "\n"
+        "        return await client.authorize_redirect(request, redirect_uri, **kwargs)"
+    )
+
+    callback_anchor = (
+        "        redirect_url = f'{redirect_base_url}/auth'\n"
+        "\n"
+        "        if error_message:\n"
+        "            redirect_url = f'{redirect_url}?error={urllib.parse.quote_plus(error_message)}'\n"
+        "            return RedirectResponse(url=redirect_url, headers=response.headers)\n"
+        "\n"
+        "        response = RedirectResponse(url=redirect_url, headers=response.headers)"
+    )
+    callback_replacement = (
+        "        redirect_url = f'{redirect_base_url}/auth'\n"
+        "\n"
+        "        # OWUI_LOCAL_PATCH_OAUTH_APP_REDIRECT: hand the token to the native app\n"
+        "        # (Oops WTF Voice) via its custom scheme when login was started with ?app=1.\n"
+        "        # Scheme is hardcoded (no open redirect); the web flow is unchanged otherwise.\n"
+        "        if request.session.pop('owui_app_login', False):\n"
+        "            if error_message:\n"
+        "                return RedirectResponse(\n"
+        "                    url='oopswtfvoice://auth?error=' + urllib.parse.quote_plus(error_message),\n"
+        "                    headers=response.headers,\n"
+        "                )\n"
+        "            return RedirectResponse(\n"
+        "                url='oopswtfvoice://auth?token=' + urllib.parse.quote(jwt_token, safe=''),\n"
+        "                headers=response.headers,\n"
+        "            )\n"
+        "\n"
+        "        if error_message:\n"
+        "            redirect_url = f'{redirect_url}?error={urllib.parse.quote_plus(error_message)}'\n"
+        "            return RedirectResponse(url=redirect_url, headers=response.headers)\n"
+        "\n"
+        "        response = RedirectResponse(url=redirect_url, headers=response.headers)"
+    )
+
+    if login_anchor not in original or callback_anchor not in original:
+        return (False, "anchors not found (Open WebUI oauth.py changed?) — NOT patched")
+
+    patched = original.replace(login_anchor, login_replacement, 1).replace(
+        callback_anchor, callback_replacement, 1
+    )
+    if patched == original:
+        return (False, "no change")
+    if not dry_run:
+        oauth_py_path.write_text(patched, encoding="utf-8")
+    return (True, "patched")
+
+
 def main(argv: list[str]) -> int:
 	parser = argparse.ArgumentParser(
 		description="Apply local Open WebUI patches inside the Poetry venv (site-packages)."
@@ -661,6 +727,13 @@ def main(argv: list[str]) -> int:
 	else:
 		applied, msg = _patch_router_openai_provider_timing(openai_py_path, dry_run=args.dry_run)
 		print(f"{'DRY-RUN ' if args.dry_run else ''}[openai-provider-timing] {openai_py_path}: {msg}")
+
+	oauth_py_path = package_dir / "utils" / "oauth.py"
+	if not oauth_py_path.exists():
+		print(f"[warn] Open WebUI oauth util not found at {oauth_py_path}", file=sys.stderr)
+	else:
+		applied, msg = _patch_oauth_app_redirect(oauth_py_path, dry_run=args.dry_run)
+		print(f"{'DRY-RUN ' if args.dry_run else ''}[oauth-app-redirect] {oauth_py_path}: {msg}")
 
 	any_applied = False
 	for js_path in call_overlay_js_chunks:
