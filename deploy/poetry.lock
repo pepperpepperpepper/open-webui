@@ -4474,13 +4474,13 @@ sympy = "*"
 
 [[package]]
 name = "open-webui"
-version = "0.9.5+pepper.2"
+version = "0.9.6+pepper.1"
 description = "Open WebUI"
 optional = false
 python-versions = "<3.13.0a1,>=3.11"
 groups = ["main"]
 files = [
-    {file = "open_webui-0.9.5+pepper.2-py3-none-any.whl", hash = "sha256:8f6d89b4c9294ec2631655d1a588385556c6c29aa83d3f4e19fedd344bba39a5"},
+    {file = "open_webui-0.9.6+pepper.1-py3-none-any.whl", hash = "sha256:7d89c042f6f58d8fcbbc36c878e49c420e87fccca6a9be2f076728f90c0ceb7a"},
 ]
 
 [package.dependencies]
@@ -4588,7 +4588,7 @@ unstructured = ["unstructured (==0.18.31)"]
 
 [package.source]
 type = "file"
-url = "vendor/open_webui-0.9.5+pepper.2-py3-none-any.whl"
+url = "vendor/open_webui-0.9.6+pepper.1-py3-none-any.whl"
 
 [[package]]
 name = "openai"
@@ -9349,4 +9349,4 @@ cffi = ["cffi (>=1.17,<2.0) ; platform_python_implementation != \"PyPy\" and pyt
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.11,<3.13"
-content-hash = "2b31a1cbfad589becb7a24b63076cf1e98f46306d5e36cc74576978b45e451e9"
+content-hash = "5a55ce36719fdd6b5d74fba8ac7b794240bdcc190a05a67639b98d83eaa8aa7e"

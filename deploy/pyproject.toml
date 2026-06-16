@@ -7,7 +7,7 @@ package-mode = false
 
 [tool.poetry.dependencies]
 python = ">=3.11,<3.13"
-open-webui = { path = "vendor/open_webui-0.9.5+pepper.2-py3-none-any.whl" }
+open-webui = { path = "vendor/open_webui-0.9.6+pepper.1-py3-none-any.whl" }
 # Pull torch from PyTorch's CPU-only index. The default PyPI torch wheel
 # pulls ~6GB of nvidia-cu12-* runtime libs as transitive deps even on
 # CPU-only boxes; the +cpu wheel drops those entirely.
