@@ -1,6 +1,7 @@
 import asyncio
 import json
 import os
+import random
 import time
 from typing import Any
 
@@ -30,6 +31,21 @@ def _emit_voice_event(event: str, data: dict) -> None:
         return
     try:
         pub({"type": "owui.voice.event", "event": event, "data": data})
+    except Exception:
+        pass
+
+
+# Set per-session in entrypoint() so the module-level web_search tool can trigger
+# the spoken "searching" filler (played in the agent's own TTS voice, no LLM call).
+_ACTIVE_SEARCH_FILLER = None
+
+
+def _trigger_search_filler() -> None:
+    fn = _ACTIVE_SEARCH_FILLER
+    if fn is None:
+        return
+    try:
+        fn()
     except Exception:
         pass
 
@@ -142,6 +158,39 @@ FRAGMENT_TURN_ALLOWLIST = _env_csv_set(
 FRAGMENT_TURN_BLOCKLIST = _env_csv_set(
     "LIVEKIT_FRAGMENT_TURN_BLOCKLIST",
     "what,when,where,why,who,whom,whose,which,how,thank,thanks",
+)
+
+
+# --- Spoken status fillers ("let me think" / "let me look that up") ---
+# Audio feedback so the user isn't waiting in silence while the model is thinking
+# or a web search runs. Spoken in the agent's own TTS voice with NO LLM call.
+FILLER_ENABLED = _env_bool("LIVEKIT_FILLER_ENABLED", True)
+# Per-category toggles. The Android app plays the "thinking" filler locally (clip
+# bundled in the app, in the fixed custom voice), so it's disabled server-side in
+# that deployment; the "searching" filler stays server-side (only the agent knows a
+# search started, and it rides the WebRTC track so echo cancellation handles it).
+FILLER_THINKING_ENABLED = _env_bool("LIVEKIT_FILLER_THINKING_ENABLED", True)
+FILLER_SEARCH_ENABLED = _env_bool("LIVEKIT_FILLER_SEARCH_ENABLED", True)
+# "thinking" is delay-gated: only spoken if the real reply hasn't started within
+# this many seconds, so snappy answers aren't front-loaded with chatter.
+FILLER_THINKING_DELAY_SEC = _env_float("LIVEKIT_FILLER_THINKING_DELAY_SEC", 0.7)
+# Extra throttle between fillers; 0 = rely only on the one-per-user-turn guard.
+FILLER_MIN_GAP_SEC = _env_float("LIVEKIT_FILLER_MIN_GAP_SEC", 0.0)
+
+
+def _env_phrase_list(name: str, default: str) -> list[str]:
+    raw = os.getenv(name, default)
+    return [p.strip() for p in raw.split("|") if p.strip()]
+
+
+# Pipe-separated; one variant is chosen at random per use.
+FILLER_THINKING_PHRASES = _env_phrase_list(
+    "LIVEKIT_FILLER_THINKING_PHRASES",
+    "Let me think.|One moment.|Let me think about that.|Give me a second.|Hmm, let me think.|Let me work through that.",
+)
+FILLER_SEARCH_PHRASES = _env_phrase_list(
+    "LIVEKIT_FILLER_SEARCH_PHRASES",
+    "Let me look that up.|Let me search for that.|Searching now.|Let me check the web.|One moment, let me look that up.",
 )
 
 
@@ -448,6 +497,10 @@ async def web_search(query: str) -> str:
     # Tell the browser UI we're searching (distinct from generic "thinking").
     _emit_voice_event("tool_call_started", {"name": "web_search", "query": query[:200]})
 
+    # Speak a short "searching" filler in the agent's voice for immediate audio
+    # feedback while the (potentially slow) search runs. Non-blocking.
+    _trigger_search_filler()
+
     try:
         timeout = aiohttp.ClientTimeout(total=8)
         async with aiohttp.ClientSession(timeout=timeout) as session:
@@ -530,6 +583,148 @@ class VoiceAgent(Agent):
             },
         )
         raise StopResponse()
+
+
+class _FillerPlayer:
+    """Speaks short status fillers ("let me think", "let me look that up") in the
+    agent's own TTS voice so the user gets audio feedback instead of silence while
+    the model is thinking or a web search is running.
+
+    No LLM call is involved: clips are synthesized once at session start and replayed
+    from cache (falling back to live TTS if a clip isn't cached yet). At most one
+    filler per user turn. The "thinking" filler is delay-gated (only if the reply is
+    slow to start); the "searching" filler fires immediately from the web_search tool
+    and pre-empts a pending "thinking" filler.
+    """
+
+    def __init__(self, session: AgentSession, *, tts_model: str, tts_voice: str) -> None:
+        self._session = session
+        self._tts_model = tts_model
+        self._tts_voice = tts_voice
+        self._frames: dict[str, rtc.AudioFrame] = {}
+        self._thinking_task: asyncio.Task | None = None
+        self._current_state = "initializing"
+        self._last_filler_at = 0.0
+        self._fired_this_turn = False
+
+    async def prerender(self) -> None:
+        if not FILLER_ENABLED:
+            return
+        kwargs: dict[str, object] = {"model": self._tts_model}
+        if self._tts_voice:
+            kwargs["voice"] = self._tts_voice
+        phrases: list[str] = []
+        if FILLER_THINKING_ENABLED:
+            phrases += FILLER_THINKING_PHRASES
+        if FILLER_SEARCH_ENABLED:
+            phrases += FILLER_SEARCH_PHRASES
+        tts = None
+        try:
+            tts = cartesia.TTS(**kwargs)
+            for text in phrases:
+                if text in self._frames:
+                    continue
+                try:
+                    async with tts.synthesize(text) as stream:
+                        self._frames[text] = await stream.collect()
+                except Exception:
+                    logger.exception("filler_prerender_phrase_failed", extra={"text": text[:80]})
+            logger.info("filler_prerendered", extra={"count": len(self._frames)})
+        except Exception:
+            logger.exception("filler_prerender_failed")
+        finally:
+            if tts is not None:
+                try:
+                    await tts.aclose()
+                except Exception:
+                    pass
+
+    def cancel(self) -> None:
+        self._cancel_thinking()
+
+    def note_state(self, new_state: str) -> None:
+        self._current_state = new_state
+        if new_state == "thinking":
+            self._arm_thinking()
+        else:
+            self._cancel_thinking()
+
+    def note_user_speaking(self) -> None:
+        # A new user turn — allow a fresh filler and drop any pending timer.
+        self._fired_this_turn = False
+        self._cancel_thinking()
+
+    def trigger_search(self) -> None:
+        # Called (sync) from the web_search tool. Pre-empt any pending "thinking"
+        # filler and announce the search instead — it's the higher-value signal.
+        if not FILLER_SEARCH_ENABLED:
+            return
+        self._cancel_thinking()
+        if not self._can_fire():
+            return
+        asyncio.create_task(
+            self._say(random.choice(FILLER_SEARCH_PHRASES), "search"),
+            name="filler_search",
+        )
+
+    def _can_fire(self) -> bool:
+        if not FILLER_ENABLED:
+            return False
+        if self._fired_this_turn:
+            return False
+        if FILLER_MIN_GAP_SEC > 0 and (time.monotonic() - self._last_filler_at) < FILLER_MIN_GAP_SEC:
+            return False
+        return True
+
+    def _cancel_thinking(self) -> None:
+        task = self._thinking_task
+        self._thinking_task = None
+        if task is not None and not task.done():
+            task.cancel()
+
+    def _arm_thinking(self) -> None:
+        if not FILLER_THINKING_ENABLED:
+            return
+        if not self._can_fire():
+            return
+        self._cancel_thinking()
+        self._thinking_task = asyncio.create_task(
+            self._thinking_after_delay(), name="filler_thinking"
+        )
+
+    async def _thinking_after_delay(self) -> None:
+        try:
+            await asyncio.sleep(FILLER_THINKING_DELAY_SEC)
+        except asyncio.CancelledError:
+            return
+        if self._current_state != "thinking" or not self._can_fire():
+            return
+        await self._say(random.choice(FILLER_THINKING_PHRASES), "thinking")
+
+    async def _say(self, text: str, kind: str) -> None:
+        self._fired_this_turn = True
+        self._last_filler_at = time.monotonic()
+        logger.info("filler_spoken", extra={"kind": kind, "text": text})
+        frame = self._frames.get(text)
+        try:
+            if frame is not None:
+                async def _audio():
+                    yield frame
+
+                await self._session.say(
+                    text,
+                    audio=_audio(),
+                    allow_interruptions=True,
+                    add_to_chat_ctx=False,
+                )
+            else:
+                await self._session.say(
+                    text,
+                    allow_interruptions=True,
+                    add_to_chat_ctx=False,
+                )
+        except Exception:
+            logger.exception("filler_say_failed", extra={"kind": kind})
 
 
 TURN_DETECTOR_PLUGIN_READY = _register_turn_detector_plugin_if_available()
@@ -634,6 +829,16 @@ async def entrypoint(ctx: agents.JobContext):
         tts=cartesia.TTS(**tts_kwargs),
         **session_kwargs,
     )
+
+    # Spoken status fillers ("thinking" / "searching") — see _FillerPlayer.
+    filler = _FillerPlayer(
+        session,
+        tts_model=TTS_MODEL,
+        tts_voice=resolved_tts_voice,
+    )
+    global _ACTIVE_SEARCH_FILLER
+    _ACTIVE_SEARCH_FILLER = filler.trigger_search
+
     voice_agent_tools = [web_search] if enable_web_search else None
     if enable_web_search:
         voice_agent_extra_instructions = (
@@ -1122,6 +1327,7 @@ async def entrypoint(ctx: agents.JobContext):
     # Stream high-level agent/session signals to the browser demo via LiveKit data packets.
     def on_agent_state_changed(ev: voice_events.AgentStateChangedEvent) -> None:
         touch_activity()
+        filler.note_state(ev.new_state)
         logger.info(
             "agent_state_changed",
             extra={"old_state": ev.old_state, "new_state": ev.new_state},
@@ -1137,6 +1343,7 @@ async def entrypoint(ctx: agents.JobContext):
     def on_user_state_changed(ev: voice_events.UserStateChangedEvent) -> None:
         if ev.new_state == "speaking":
             reset_final_transcript_dedupe()
+            filler.note_user_speaking()
         schedule_publish(
             {
                 "type": "owui.voice.event",
@@ -1341,8 +1548,10 @@ async def entrypoint(ctx: agents.JobContext):
 
     def on_close(ev: voice_events.CloseEvent) -> None:
         touch_activity()
-        global _ACTIVE_VOICE_PUBLISH
+        global _ACTIVE_VOICE_PUBLISH, _ACTIVE_SEARCH_FILLER
         _ACTIVE_VOICE_PUBLISH = None
+        _ACTIVE_SEARCH_FILLER = None
+        filler.cancel()
         logger.warning(
             "session_close",
             extra={"reason": ev.reason, "error": str(ev.error) if ev.error else None},
@@ -1471,6 +1680,8 @@ async def entrypoint(ctx: agents.JobContext):
         room_input_options=room_io.RoomInputOptions(close_on_disconnect=True),
     )
     asyncio.create_task(idle_watchdog(), name="session_idle_watchdog")
+    if FILLER_ENABLED:
+        asyncio.create_task(filler.prerender(), name="filler_prerender")
     touch_activity()
     log_session_metric(
         "started",
