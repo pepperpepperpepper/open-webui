@@ -253,118 +253,22 @@ This deployment can use Cartesia for STT via the OpenAI-compatible transcription
 
 Open WebUI uses a separate model for background tasks (title generation, tags, follow-up, query generation, etc.). For remote providers, set `TASK_MODEL_EXTERNAL` (Admin → Tasks).
 
-## LiveKit Voice (Cartesia STT/TTS + Cerebras GLM-4.6)
+## LiveKit Voice → moved to its own project (`livekit-voice`)
 
-This repo includes a small “portal” page + a LiveKit Agent proof-of-concept:
+As of **2026-06-27** the LiveKit voice backend (portal, agent, web demo, server config, TTS
+fillers) is **no longer in this repo** — it was extracted into a standalone project:
 
-- Portal: `deploy/livekit/portal.py` (serves `deploy/livekit/index.html` + mints LiveKit room tokens)
-- Agent: `deploy/livekit/agent.py` (Cartesia STT → Cerebras LLM → Cartesia TTS)
+- **Repo:** `git@git.uh-oh.wtf:livekit-voice.git` — browse <https://git.uh-oh.wtf/livekit-voice.git>
+- **Deploy (this host):** `/var/www/livekit-voice` — own venv + env files; s6 services
+  **`livekit-voice-{server,portal,agent}`** on **:8191** (portal) / **:7890** (LiveKit WS) /
+  **:7891** (RTC TCP) / UDP **50200–50300**.
+- **nginx** (this repo's vhost) still routes `https://chat.uh-oh.wtf/livekit/` → portal `:8191`
+  and `/lk/` → LiveKit server `:7890`.
+- **Open WebUI stays the identity provider:** the portal validates OWUI JWTs with the shared
+  **`WEBUI_SECRET_KEY`** (must match this repo's `.env`). The one owui-voice-specific patch still
+  in THIS repo is the OAuth app-redirect (`deploy/apply_local_patches.py::_patch_oauth_app_redirect`,
+  `?app=1` → `oopswtfvoice://`).
 
-This setup supports **either** a LiveKit Cloud URL **or** a **self-hosted** LiveKit server.
-
-### Python deps (already wired into this Poetry project)
-
-The deployment wrapper now includes:
-
-- `livekit-agents` (Cartesia/OpenAI/turn-detector extras)
-- `livekit-api`
-
-Install/upgrade the venv:
-
-```sh
-cd /var/www/open-webui
-poetry install
-```
-
-### Self-hosted LiveKit server (recommended)
-
-1) Install `livekit-server`:
-
-```sh
-sudo install -d -m 0755 /usr/local/bin
-sudo curl -fsSL -o /usr/local/bin/livekit-server \
-  https://github.com/livekit/livekit/releases/latest/download/livekit-server-linux-amd64
-sudo chmod 0755 /usr/local/bin/livekit-server
-```
-
-2) Generate a local LiveKit config + credentials (does not print secrets):
-
-```sh
-cd /var/www/open-webui
-./.venv/bin/python deploy/livekit/setup_self_hosted.py
-```
-
-This creates:
-
-- `deploy/livekit/livekit.yaml` (LiveKit server config; includes API key/secret)
-- `deploy/livekit/livekit.env` (exported env vars for portal + agent)
-
-### Required env vars
-
-The portal + agent read env vars from:
-
-- `/var/www/open-webui/.env` (provider keys; already sources `/home/arch/.api-keys`)
-- `/var/www/open-webui/deploy/livekit/livekit.env` (LiveKit URL + credentials)
-
-```sh
-# LiveKit server
-LIVEKIT_URL='wss://YOUR-LIVEKIT-WS-URL'
-LIVEKIT_API_KEY='...'
-LIVEKIT_API_SECRET='...'
-
-# LiveKit Agent dispatch name (portal + agent must match)
-LIVEKIT_AGENT_NAME='owui-voice'
-
-# Cartesia (STT + TTS)
-CARTESIA_API_KEY='...'
-
-# Cerebras (LLM)
-CEREBRAS_API_KEY='...'
-
-# Optional overrides
-# LIVEKIT_LLM_MODEL='zai-glm-4.6'
-# LIVEKIT_STT_MODEL='ink-whisper'
-# LIVEKIT_STT_LANGUAGE='en'
-# LIVEKIT_TTS_MODEL='sonic-2'
-# LIVEKIT_TTS_VOICE='f786b574-daa5-4673-aa0c-cbe3e8534c02'
-```
-
-### Run manually (no root)
-
-Terminal 1 (portal on `127.0.0.1:8091`):
-
-```sh
-cd /var/www/open-webui
-set -a; . ./.env; . ./deploy/livekit/livekit.env; set +a
-./.venv/bin/python deploy/livekit/portal.py
-```
-
-Terminal 2 (agent):
-
-```sh
-cd /var/www/open-webui
-set -a; . ./.env; . ./deploy/livekit/livekit.env; set +a
-./.venv/bin/python deploy/livekit/agent.py start
-```
-
-Pre-download optional voice models (VAD / turn detector) to avoid first-call latency:
-
-```sh
-./.venv/bin/python deploy/livekit/agent.py download-files
-```
-
-### nginx routing (recommended)
-
-Update the nginx vhost to route `https://chat.uh-oh.wtf/livekit/` to the portal on `127.0.0.1:8091`.
-The template in `deploy/nginx.chat.uh-oh.wtf.conf` includes ready-to-copy blocks for:
-
-- `location ^~ /livekit/ { ... }` (portal)
-- `location ^~ /lk/ { ... }` (self-hosted LiveKit server)
-
-### s6 services (recommended)
-
-Templates are provided:
-
-- `deploy/s6/open-webui-livekit-portal`
-- `deploy/s6/open-webui-livekit-agent`
-- `deploy/s6/open-webui-livekit-server`
+Setup / run / release instructions now live in the `livekit-voice` repo's `README.md`. The old
+`open-webui-livekit-*` s6 services and `deploy/livekit/` were retired on 2026-06-27 (see
+`deploy/livekit/MOVED.md`).
