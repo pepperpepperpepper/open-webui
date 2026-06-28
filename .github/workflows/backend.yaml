@@ -5,12 +5,7 @@
 name: Python CI
 
 on:
-  push:
-    branches: [main, dev]
-    paths: ['backend/**', 'pyproject.toml', 'uv.lock']
-  pull_request:
-    branches: [main, dev]
-    paths: ['backend/**', 'pyproject.toml', 'uv.lock']
+  workflow_dispatch: {}
 
 concurrency:
   group: backend-${{ github.ref }}
